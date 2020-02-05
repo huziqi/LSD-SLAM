@@ -12,7 +12,7 @@ set(CMAKE_BUILD_TYPE Release)
 
 # Build with OpenCV3 in /opt/ros/kinetic/
 set(OpenCV_INCLUDE_DIRS /opt/ros/kinetic/include/opencv-3.3.1)
-set(OpenCV_LIBS /opt/ros/kinetic/lib/libopencv_core3.so.3.3.1 /opt/ros/kinetic/lib/libopencv_imgproc3.so.3.3.1 /opt/ros/kinetic/lib/libopencv_highgui3.so.3.3.1 /opt/ros/kinetic/lib/libopencv_calib3d3.so.3.3.1)
+set(OpenCV_LIBS /opt/ros/kinetic/lib/x86_64-linux-gnu/libopencv_core3.so.3.3.1 /opt/ros/kinetic/lib/x86_64-linux-gnu/libopencv_imgproc3.so.3.3.1 /opt/ros/kinetic/lib/x86_64-linux-gnu/libopencv_highgui3.so.3.3.1 /opt/ros/kinetic/lib/x86_64-linux-gnu/libopencv_calib3d3.so.3.3.1)
 set(OpenCV_DIR /opt/ros/kinetic/share/OpenCV-3.3.1)
 
 find_package(catkin REQUIRED COMPONENTS

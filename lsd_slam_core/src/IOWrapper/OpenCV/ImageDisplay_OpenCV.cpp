@@ -70,6 +70,7 @@ void displayThreadLoop()
 				}
 			}
 			cv::imshow(displayQueue.back().name, displayQueue.back().img);
+			cv::waitKey(1);
 			displayQueue.pop_back();
 		}
 	}
@@ -116,13 +117,15 @@ void displayImage(const char* windowName, const cv::Mat& image, bool autoSize)
 
 int waitKey(int milliseconds)
 {
-	return cv::waitKey(milliseconds);
+	return 1;
+	//return cv::waitKey(milliseconds);
 }
 
 int waitKeyNoConsume(int milliseconds)
 {
+	return 1;
 	// Cannot implement this with OpenCV functions.
-	return cv::waitKey(milliseconds);
+	//return cv::waitKey(milliseconds);
 }
 
 void closeAllWindows()
