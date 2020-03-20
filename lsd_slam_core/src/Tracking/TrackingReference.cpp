@@ -68,7 +68,7 @@ TrackingReference::~TrackingReference()
 	releaseAll();
 }
 
-void TrackingReference::importFrame(Frame* sourceKF)
+void TrackingReference::importFrame(Frame* sourceKF)//将跟踪参考帧的关键帧设为sorceKF
 {
 	boost::unique_lock<boost::mutex> lock(accessMutex);
 	keyframeLock = sourceKF->getActiveLock();

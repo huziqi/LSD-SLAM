@@ -880,7 +880,7 @@ void DepthMap::regularizeDepthMap(bool removeOcclusions, int validityTH)
 }
 
 
-void DepthMap::initializeRandomly(Frame* new_frame)
+void DepthMap::initializeRandomly(Frame* new_frame)//用于第一帧初始化深度图，调用：1.SlamSystem.cpp/randomInit()
 {
 	activeKeyFramelock = new_frame->getActiveLock();
 	activeKeyFrame = new_frame;
@@ -889,7 +889,7 @@ void DepthMap::initializeRandomly(Frame* new_frame)
 
 	const float* maxGradients = new_frame->maxGradients();
 
-	for(int y=1;y<height-1;y++)
+	for(int y=1;y<height-1;y++)//在梯度明显的点用随机值初始化深度，0.5-1.5，初始化currentDepthMap
 	{
 		for(int x=1;x<width-1;x++)
 		{
@@ -912,7 +912,7 @@ void DepthMap::initializeRandomly(Frame* new_frame)
 	}
 
 
-	activeKeyFrame->setDepth(currentDepthMap);
+	activeKeyFrame->setDepth(currentDepthMap);//把深度值存进Frame类的data结构中
 }
 
 

@@ -109,7 +109,7 @@ void LiveSLAMWrapper::Loop()
 }
 
 
-void LiveSLAMWrapper::newImageCallback(const cv::Mat& img, Timestamp imgTime)
+void LiveSLAMWrapper::newImageCallback(const cv::Mat& img, Timestamp imgTime)//开始处理图片
 {
 	++ imageSeqNumber;
 
@@ -126,7 +126,7 @@ void LiveSLAMWrapper::newImageCallback(const cv::Mat& img, Timestamp imgTime)
 	assert(fx != 0 || fy != 0);
 
 
-	// need to initialize
+	// need to initialize,第一帧初始化
 	if(!isInitialized)
 	{
 		monoOdometry->randomInit(grayImg.data, imgTime.toSec(), 1);

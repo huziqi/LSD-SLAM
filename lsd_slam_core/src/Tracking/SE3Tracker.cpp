@@ -745,7 +745,7 @@ float SE3Tracker::calcWeightsAndResidualNEON(
 	return sumRes / buf_warped_size;
 }
 #endif
-
+//该函数的功能是计算归一化方差的光度误差系数，也就是计算由于高斯噪音和逆深度的误差造成的不确定性，并且乘以了Huber-weight，最终把这个系数存在数组buf_weight_p中
 float SE3Tracker::calcWeightsAndResidual(
 		const Sophus::SE3f& referenceToFrame)
 {
@@ -767,7 +767,7 @@ float SE3Tracker::calcWeightsAndResidual(
 		float s = settings.var_weight * *(buf_idepthVar+i);	// \sigma_d^2
 
 
-		// calc dw/dd (first 2 components):
+		// calc dw/dd (first 2 components):只考虑位移
 		float g0 = (tx * pz - tz * px) / (pz*pz*d);
 		float g1 = (ty * pz - tz * py) / (pz*pz*d);
 
@@ -880,8 +880,8 @@ float SE3Tracker::calcResidualAndBuffersNEON(
 	return calcResidualAndBuffers(refPoint, refColVar, idxBuf, refNum, frame, referenceToFrame, level, plotResidual);
 }
 #endif
-
-
+//如果参考帧坐标系下的3D点pi能投影到当前帧，则把变换到当前帧坐标系下得到的3D点pi′，记录在变量buf_warped_x、buf_warped_y、buf_warped_z,
+//计算pi′在当前帧的投影点位置的梯度buf_warped_dx、buf_warped_dx，以及残差buf_warped_residual,记录参考帧下点pi的逆深度buf_d以及（逆深度的）方差buf_idepthVar
 float SE3Tracker::calcResidualAndBuffers(
 		const Eigen::Vector3f* refPoint,
 		const Eigen::Vector2f* refColVar,

@@ -854,19 +854,19 @@ void SlamSystem::gtDepthInit(uchar* image, float* depth, double timeStamp, int i
 }
 
 
-void SlamSystem::randomInit(uchar* image, double timeStamp, int id)
+void SlamSystem::randomInit(uchar* image, double timeStamp, int id)//第一帧初始化,调用：1.LiveSLAMWrapper.cpp/newImageCallback()
 {
 	printf("Doing Random initialization!\n");
 
-	if(!doMapping)
+	if(!doMapping)//第一帧的时候必须要把doMapping打开
 		printf("WARNING: mapping is disabled, but we just initialized... THIS WILL NOT WORK! Set doMapping to true.\n");
 
 
 	currentKeyFrameMutex.lock();
 
-	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image));
-	map->initializeRandomly(currentKeyFrame.get());
-	keyFrameGraph->addFrame(currentKeyFrame.get());
+	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image));//构建新的一帧
+	map->initializeRandomly(currentKeyFrame.get());//随机初始化深度图
+	keyFrameGraph->addFrame(currentKeyFrame.get());//将第一帧的位姿插入关键帧图中
 
 	currentKeyFrameMutex.unlock();
 
@@ -887,12 +887,12 @@ void SlamSystem::randomInit(uchar* image, double timeStamp, int id)
 
 }
 
-void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilMapped, double timestamp)
+void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilMapped, double timestamp)//初始化后开始追踪线程
 {
 	// Create new frame
 	std::shared_ptr<Frame> trackingNewFrame(new Frame(frameID, width, height, K, timestamp, image));
 
-	if(!trackingIsGood)
+	if(!trackingIsGood)//跟丢后重定位
 	{
 		relocalizer.updateCurrentFrame(trackingNewFrame);
 
@@ -904,9 +904,9 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 
 	currentKeyFrameMutex.lock();
 	bool my_createNewKeyframe = createNewKeyFrame;	// pre-save here, to make decision afterwards.
-	if(trackingReference->keyframe != currentKeyFrame.get() || currentKeyFrame->depthHasBeenUpdatedFlag)
+	if(trackingReference->keyframe != currentKeyFrame.get() || currentKeyFrame->depthHasBeenUpdatedFlag)//若当前跟踪参考帧不是当前关键帧，或当前关键帧深度被更新
 	{
-		trackingReference->importFrame(currentKeyFrame.get());
+		trackingReference->importFrame(currentKeyFrame.get());//将跟踪参考帧设为当前关键帧
 		currentKeyFrame->depthHasBeenUpdatedFlag = false;
 		trackingReferenceFrameSharedPT = currentKeyFrame;
 	}

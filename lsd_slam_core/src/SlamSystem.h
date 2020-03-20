@@ -200,7 +200,7 @@ private:
 
 
 
-	// threads
+	// threads，三个线程，建图，极线搜索，优化
 	boost::thread thread_mapping;
 	boost::thread thread_constraint_search;
 	boost::thread thread_optimization;

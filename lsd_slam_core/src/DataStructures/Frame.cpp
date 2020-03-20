@@ -440,7 +440,7 @@ void Frame::initialize(int id, int width, int height, const Eigen::Matrix3f& K, 
 		data.idepthVar[level] = 0;
 		data.reActivationDataValid = false;
 
-// 		data.refIDValid[level] = false;
+		// 		data.refIDValid[level] = false;
 		
 		if (level > 0)
 		{

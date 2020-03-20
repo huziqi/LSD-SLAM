@@ -61,6 +61,8 @@ int main( int argc, char** argv )
 
 	Output3DWrapper* outputWrapper = new ROSOutput3DWrapper(inputStream->width(), inputStream->height());
 	LiveSLAMWrapper slamNode(inputStream, outputWrapper);
+
+	
 	slamNode.Loop();
 
 
