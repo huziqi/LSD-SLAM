@@ -61,7 +61,7 @@ LiveSLAMWrapper::LiveSLAMWrapper(InputImageStream* imageStream, Output3DWrapper*
 
 
 	// make Odometry
-	monoOdometry = new SlamSystem(width, height, K_sophus, doSlam);
+	monoOdometry = new SlamSystem(width, height, K_sophus, doSlam);//开始建图线程
 
 	monoOdometry->setVisualization(outputWrapper);
 

@@ -932,7 +932,7 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 	SE3 newRefToFrame_poseUpdate = tracker->trackFrame(
 			trackingReference,
 			trackingNewFrame.get(),
-			frameToReference_initialEstimate);
+			frameToReference_initialEstimate);//得到当前帧的估计位姿
 
 
 	gettimeofday(&tv_end, NULL);
@@ -983,7 +983,7 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 		outputWrapper->publishDebugInfo(data);
 	}
 
-	keyFrameGraph->addFrame(trackingNewFrame.get());
+	keyFrameGraph->addFrame(trackingNewFrame.get());//不是关键帧也插？？？？？？？？
 
 
 	//Sim3 lastTrackedCamToWorld = mostCurrentTrackedFrame->getScaledCamToWorld();//  mostCurrentTrackedFrame->TrackingParent->getScaledCamToWorld() * sim3FromSE3(mostCurrentTrackedFrame->thisToParent_SE3TrackingResult, 1.0);

@@ -328,12 +328,12 @@ SE3 SE3Tracker::trackFrame(
 			return SE3();
 		}
 
-		if(useAffineLightningEstimation)
+		if(useAffineLightningEstimation)//使用了光照变化仿射变换，使得环境光照变化时缩小残差
 		{
 			affineEstimation_a = affineEstimation_a_lastIt;
 			affineEstimation_b = affineEstimation_b_lastIt;
 		}
-		float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame));
+		float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame));//计算归一化方差的光度误差系数，返回值是归一化光度误差均值
 
 		numCalcResidualCalls[lvl]++;
 
@@ -343,7 +343,7 @@ SE3 SE3Tracker::trackFrame(
 		for(int iteration=0; iteration < settings.maxItsPerLvl[lvl]; iteration++)
 		{
 
-			callOptimized(calculateWarpUpdate,(ls));
+			callOptimized(calculateWarpUpdate,(ls));//计算雅可比以及最小二乘系数
 
 			numCalcWarpUpdateCalls[lvl]++;
 
@@ -479,10 +479,10 @@ SE3 SE3Tracker::trackFrame(
 	if(trackingWasGood)
 		reference->keyframe->numFramesTrackedOnThis++;
 
-	frame->initialTrackedResidual = lastResidual / pointUsage;
+	frame->initialTrackedResidual = lastResidual / pointUsage;//？？？？？？？？？？
 	frame->pose->thisToParent_raw = sim3FromSE3(toSophus(referenceToFrame.inverse()),1);
 	frame->pose->trackingParent = reference->keyframe->pose;
-	return toSophus(referenceToFrame.inverse());
+	return toSophus(referenceToFrame.inverse());//referenceToFrame就是得到的位姿
 }
 
 
@@ -767,7 +767,7 @@ float SE3Tracker::calcWeightsAndResidual(
 		float s = settings.var_weight * *(buf_idepthVar+i);	// \sigma_d^2
 
 
-		// calc dw/dd (first 2 components):只考虑位移
+		// calc dw/dd (first 2 components):只考虑位移,计算论文中公式14中的偏导数
 		float g0 = (tx * pz - tz * px) / (pz*pz*d);
 		float g1 = (ty * pz - tz * py) / (pz*pz*d);
 
@@ -777,8 +777,7 @@ float SE3Tracker::calcWeightsAndResidual(
 		float w_p = 1.0f / ((cameraPixelNoise2) + s * drpdd * drpdd);
 
 		float weighted_rp = fabs(rp*sqrtf(w_p));
-
-		float wh = fabs(weighted_rp < (settings.huber_d/2) ? 1 : (settings.huber_d/2) / weighted_rp);
+		float wh = fabs(weighted_rp < (settings.huber_d/2) ? 1 : (settings.huber_d/2) / weighted_rp);//计算Huber权重
 
 		sumRes += wh * w_p * rp*rp;
 
@@ -786,7 +785,7 @@ float SE3Tracker::calcWeightsAndResidual(
 		*(buf_weight_p+i) = wh * w_p;
 	}
 
-	return sumRes / buf_warped_size;
+	return sumRes / buf_warped_size;//归一化光度误差均值
 }
 
 
@@ -934,8 +933,8 @@ float SE3Tracker::calcResidualAndBuffers(
 	for(;refPoint<refPoint_max; refPoint++, refColVar++, idxBuf++)
 	{
 
-		Eigen::Vector3f Wxp = rotMat * (*refPoint) + transVec;
-		float u_new = (Wxp[0]/Wxp[2])*fx_l + cx_l;
+		Eigen::Vector3f Wxp = rotMat * (*refPoint) + transVec;//参考帧下的3D点变换到当前帧
+		float u_new = (Wxp[0]/Wxp[2])*fx_l + cx_l;//变换到当前帧的图像坐标
 		float v_new = (Wxp[1]/Wxp[2])*fy_l + cy_l;
 
 		// step 1a: coordinates have to be in image:
@@ -947,19 +946,19 @@ float SE3Tracker::calcResidualAndBuffers(
 			continue;
 		}
 
-		Eigen::Vector3f resInterp = getInterpolatedElement43(frame_gradients, u_new, v_new, w);
+		Eigen::Vector3f resInterp = getInterpolatedElement43(frame_gradients, u_new, v_new, w);//双线性插值
 
-		float c1 = affineEstimation_a * (*refColVar)[0] + affineEstimation_b;
-		float c2 = resInterp[2];
-		float residual = c1 - c2;
+		float c1 = affineEstimation_a * (*refColVar)[0] + affineEstimation_b;//这一步仿射的作用？？？？？？？？
+		float c2 = resInterp[2];//像素值
+		float residual = c1 - c2;//残差，c1是参考帧，c2是当前帧
 
-		float weight = fabsf(residual) < 5.0f ? 1 : 5.0f / fabsf(residual);
+		float weight = fabsf(residual) < 5.0f ? 1 : 5.0f / fabsf(residual);//根据残差的上阈值设置权重
 		sxx += c1*c1*weight;
 		syy += c2*c2*weight;
 		sx += c1*weight;
 		sy += c2*weight;
 		sw += weight;
-
+		//根据梯度判断残差的质量，梯度越大，残差的容忍度越高
 		bool isGood = residual*residual / (MAX_DIFF_CONSTANT + MAX_DIFF_GRAD_MULT*(resInterp[0]*resInterp[0] + resInterp[1]*resInterp[1])) < 1;
 
 		if(isGoodOutBuffer != 0)
@@ -1015,7 +1014,7 @@ float SE3Tracker::calcResidualAndBuffers(
 
 	buf_warped_size = idx;
 
-	pointUsage = usageCount / (float)refNum;
+	pointUsage = usageCount / (float)refNum; 
 	lastGoodCount = goodCount;
 	lastBadCount = badCount;
 	lastMeanRes = sumSignedRes / goodCount;
