@@ -47,7 +47,7 @@
 #include "opencv2/opencv.hpp"
 
 using namespace lsd_slam;
-
+//test
 
 SlamSystem::SlamSystem(int w, int h, Eigen::Matrix3f K, bool enableSLAM)
 : SLAMEnabled(enableSLAM), relocalizer(w,h,K)
