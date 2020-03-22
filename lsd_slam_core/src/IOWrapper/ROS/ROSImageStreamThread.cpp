@@ -41,7 +41,7 @@ ROSImageStreamThread::ROSImageStreamThread()
 {
 	// subscribe
 	vid_channel = nh_.resolveName("image");
-	vid_sub          = nh_.subscribe(vid_channel,1, &ROSImageStreamThread::vidCb, this);
+	vid_sub          = nh_.subscribe(vid_channel,1, &ROSImageStreamThread::vidCb, this);//“image"话题中的图片和时间戳存到了imageBuffer
 
 
 	// wait for cam calib

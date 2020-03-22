@@ -863,7 +863,7 @@ void SlamSystem::randomInit(uchar* image, double timeStamp, int id)//第一帧�
 
 	currentKeyFrameMutex.lock();
 
-	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image));//构建新的一帧
+	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image));//构建第一帧关键帧
 	map->initializeRandomly(currentKeyFrame.get());//随机初始化深度图
 	keyFrameGraph->addFrame(currentKeyFrame.get());//将第一帧的位姿插入关键帧图中
 

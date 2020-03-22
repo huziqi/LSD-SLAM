@@ -39,10 +39,10 @@ int main( int argc, char** argv )
 
 	ros::init(argc, argv, "LSD_SLAM");
 
-	dynamic_reconfigure::Server<lsd_slam_core::LSDParamsConfig> srv(ros::NodeHandle("~"));
+	dynamic_reconfigure::Server<lsd_slam_core::LSDParamsConfig> srv(ros::NodeHandle("~"));//动态调参
 	srv.setCallback(dynConfCb);
 
-	dynamic_reconfigure::Server<lsd_slam_core::LSDDebugParamsConfig> srvDebug(ros::NodeHandle("~Debug"));
+	dynamic_reconfigure::Server<lsd_slam_core::LSDDebugParamsConfig> srvDebug(ros::NodeHandle("~Debug"));//动态调参
 	srvDebug.setCallback(dynConfCbDebug);
 
 	packagePath = ros::package::getPath("lsd_slam_core")+"/";
