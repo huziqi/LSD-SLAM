@@ -107,12 +107,12 @@ SlamSystem::SlamSystem(int w, int h, Eigen::Matrix3f K, bool enableSLAM)
 	depthMapScreenshotFlag = false;
 	lastTrackingClosenessScore = 0;
 
-	thread_mapping = boost::thread(&SlamSystem::mappingThreadLoop, this);
+	thread_mapping = boost::thread(&SlamSystem::mappingThreadLoop, this);//建图线程
 
 	if(SLAMEnabled)
 	{
-		thread_constraint_search = boost::thread(&SlamSystem::constraintSearchThreadLoop, this);
-		thread_optimization = boost::thread(&SlamSystem::optimizationThreadLoop, this);
+		thread_constraint_search = boost::thread(&SlamSystem::constraintSearchThreadLoop, this);//回环线程
+		thread_optimization = boost::thread(&SlamSystem::optimizationThreadLoop, this);//优化线程
 	}
 
 
@@ -191,11 +191,6 @@ void SlamSystem::mergeOptimizationOffset()
 
 	poseConsistencyMutex.unlock();
 
-
-
-
-
-
 	if(needPublish)
 		publishKeyframeGraph();
 }
@@ -271,14 +266,14 @@ void SlamSystem::constraintSearchThreadLoop()
 
 	while(keepRunning)
 	{
-		if(newKeyFrames.size() == 0)
+		if(newKeyFrames.size() == 0)//在finishCurrentKeyFrame中加入CurrentKeyFrame，所有关键帧中随机选取测试闭环
 		{
 			lock.unlock();
 			keyFrameGraph->keyframesForRetrackMutex.lock();
 			bool doneSomething = false;
 			if(keyFrameGraph->keyframesForRetrack.size() > 10)
 			{
-				std::deque< Frame* >::iterator toReTrack = keyFrameGraph->keyframesForRetrack.begin() + (rand() % (keyFrameGraph->keyframesForRetrack.size()/3));
+				std::deque< Frame* >::iterator toReTrack = keyFrameGraph->keyframesForRetrack.begin() + (rand() % (keyFrameGraph->keyframesForRetrack.size()/3));//随机选取测试回环
 				Frame* toReTrackFrame = *toReTrack;
 
 				keyFrameGraph->keyframesForRetrack.erase(toReTrack);
@@ -286,7 +281,10 @@ void SlamSystem::constraintSearchThreadLoop()
 
 				keyFrameGraph->keyframesForRetrackMutex.unlock();
 
-				int found = findConstraintsForNewKeyFrames(toReTrackFrame, false, false, 2.0);
+				int found = findConstraintsForNewKeyFrames(toReTrackFrame, false, false, 2.0);/*根据视差、关键帧连接关系，找出并且在删选处候选帧，
+																							  然后对每个候选帧和测试的关键帧之间进行双向sim3跟踪，
+																							  如果求解出的两个李代数满足马氏距离在一定范围内，则认为是闭环成功，
+																							  并且在位姿图中添加边的约束。*/
 				if(found == 0)
 					failedToRetrack++;
 				else
@@ -308,7 +306,7 @@ void SlamSystem::constraintSearchThreadLoop()
 
 			}
 		}
-		else
+		else//取最早的新关键帧测试闭环
 		{
 			Frame* newKF = newKeyFrames.front();
 			newKeyFrames.pop_front();
@@ -319,6 +317,7 @@ void SlamSystem::constraintSearchThreadLoop()
 
 			findConstraintsForNewKeyFrames(newKF, true, true, 1.0);
 			failedToRetrack=0;
+
 			gettimeofday(&tv_end, NULL);
 			msFindConstraintsItaration = 0.9*msFindConstraintsItaration + 0.1*((tv_end.tv_sec-tv_start.tv_sec)*1000.0f + (tv_end.tv_usec-tv_start.tv_usec)/1000.0f);
 			nFindConstraintsItaration++;
@@ -328,7 +327,7 @@ void SlamSystem::constraintSearchThreadLoop()
 		}
 
 
-		if(doFullReConstraintTrack)
+		if(doFullReConstraintTrack)//所有关键帧测试闭环
 		{
 			lock.unlock();
 			printf("Optizing Full Map!\n");
@@ -558,10 +557,10 @@ bool SlamSystem::updateKeyframe()
 	if(unmappedTrackedFrames.size() > 0)
 	{
 		for(unsigned int i=0;i<unmappedTrackedFrames.size(); i++)
-			references.push_back(unmappedTrackedFrames[i]);
+			references.push_back(unmappedTrackedFrames[i]);//将unmappedTrackedFrames存进references里
 
 		std::shared_ptr<Frame> popped = unmappedTrackedFrames.front();
-		unmappedTrackedFrames.pop_front();
+		unmappedTrackedFrames.pop_front();//去掉最老的一帧
 		unmappedTrackedFramesMutex.unlock();
 
 		if(enablePrintDebugInfo && printThreadingInfo)
@@ -737,7 +736,7 @@ void SlamSystem::takeRelocalizeResult()
 
 bool SlamSystem::doMappingIteration()
 {
-	if(currentKeyFrame == 0)
+	if(currentKeyFrame == 0)//未初始化时不进行建图
 		return false;
 
 	if(!doMapping && currentKeyFrame->idxInKeyframes < 0)
@@ -779,7 +778,7 @@ bool SlamSystem::doMappingIteration()
 		}
 
 
-		if (createNewKeyFrame)
+		if (createNewKeyFrame)//createNewKeyFrame在TrackFrame最后的selectKeyFrame部分赋值，根据当前帧和参考帧间的移动距离
 		{
 			finishCurrentKeyframe();
 			changeKeyframe(false, true, 1.0f);
@@ -982,7 +981,7 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 		outputWrapper->publishDebugInfo(data);
 	}
 
-	keyFrameGraph->addFrame(trackingNewFrame.get());//不是关键帧也插？？？？？？？？
+	keyFrameGraph->addFrame(trackingNewFrame.get());//只在KeyFrameGraph中保留这一帧的位姿
 
 
 	//Sim3 lastTrackedCamToWorld = mostCurrentTrackedFrame->getScaledCamToWorld();//  mostCurrentTrackedFrame->TrackingParent->getScaledCamToWorld() * sim3FromSE3(mostCurrentTrackedFrame->thisToParent_SE3TrackingResult, 1.0);
@@ -1140,8 +1139,8 @@ void SlamSystem::testConstraint(
 			newKFTrackingReference, candidateTrackingReference,	// A = frame; b = candidate
 			SIM3TRACKING_MAX_LEVEL-1, 3,
 			USESSE,
-			FtoC, CtoF);
-
+			FtoC, CtoF);//双向sim跟踪
+	
 	if(err_level3 > 3000*strictness)
 	{
 		if(enablePrintDebugInfo && printConstraintSearchInfo)
@@ -1216,7 +1215,7 @@ void SlamSystem::testConstraint(
 
 int SlamSystem::findConstraintsForNewKeyFrames(Frame* newKeyFrame, bool forceParent, bool useFABMAP, float closeCandidatesTH)
 {
-	if(!newKeyFrame->hasTrackingParent())
+	if(!newKeyFrame->hasTrackingParent())//初始化第一帧的时候
 	{
 		newConstraintMutex.lock();
 		keyFrameGraph->addKeyFrame(newKeyFrame);
@@ -1281,7 +1280,7 @@ int SlamSystem::findConstraintsForNewKeyFrames(Frame* newKeyFrame, bool forcePar
 
 	SO3 disturbance = SO3::exp(Sophus::Vector3d(0.05,0,0));
 
-	for (Frame* candidate : candidates)
+	for (Frame* candidate : candidates)//closeCandidates
 	{
 		if (candidate->id() == newKeyFrame->id())
 			continue;
@@ -1312,7 +1311,7 @@ int SlamSystem::findConstraintsForNewKeyFrames(Frame* newKeyFrame, bool forcePar
 
 	int farFailed = 0;
 	int farInconsistent = 0;
-	for (Frame* candidate : candidates)
+	for (Frame* candidate : candidates)//farCandidates
 	{
 		if (candidate->id() == newKeyFrame->id())
 			continue;
@@ -1468,14 +1467,14 @@ int SlamSystem::findConstraintsForNewKeyFrames(Frame* newKeyFrame, bool forcePar
 		testConstraint(
 				candidate, e1, e2,
 				candidateToFrame_initialEstimateMap[candidate],
-				loopclosureStrictness);
+				loopclosureStrictness);//双向sim跟踪
 
 		if(enablePrintDebugInfo && printConstraintSearchInfo)
 			printf(" CLOSE (%d)\n", distancesToNewKeyFrame.at(candidate));
 
 		if(e1 != 0)
 		{
-			constraints.push_back(e1);
+			constraints.push_back(e1);//双向跟踪成功，添加优化约束
 			constraints.push_back(e2);
 
 			// delete from far candidates if it's in there.
@@ -1532,7 +1531,7 @@ int SlamSystem::findConstraintsForNewKeyFrames(Frame* newKeyFrame, bool forcePar
 			constraints.push_back(e1);
 			constraints.push_back(e2);
 		}
-		else
+		else//？？？？？？？？？？？？
 		{
 			float downweightFac = 5;
 			const float kernelDelta = 5 * sqrt(6000*loopclosureStrictness) / downweightFac;

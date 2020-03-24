@@ -1124,7 +1124,9 @@ void DepthMap::updateKeyframe(std::deque< std::shared_ptr<Frame> > referenceFram
 
 
 	gettimeofday(&tv_start, NULL);
-	observeDepth();
+
+	observeDepth();//用最近一次观测更新关键帧的深度
+
 	gettimeofday(&tv_end, NULL);
 	msObserve = 0.9*msObserve + 0.1*((tv_end.tv_sec-tv_start.tv_sec)*1000.0f + (tv_end.tv_usec-tv_start.tv_usec)/1000.0f);
 	nObserve++;
@@ -1247,7 +1249,9 @@ void DepthMap::createKeyFrame(Frame* new_keyframe)
 
 	struct timeval tv_start, tv_end;
 	gettimeofday(&tv_start, NULL);
+	
 	propagateDepth(new_keyframe);
+	
 	gettimeofday(&tv_end, NULL);
 	msPropagate = 0.9*msPropagate + 0.1*((tv_end.tv_sec-tv_start.tv_sec)*1000.0f + (tv_end.tv_usec-tv_start.tv_usec)/1000.0f);
 	nPropagate++;
