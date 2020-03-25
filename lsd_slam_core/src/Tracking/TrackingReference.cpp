@@ -93,7 +93,7 @@ void TrackingReference::invalidate()
 	keyframe = 0;
 }
 
-void TrackingReference::makePointCloud(int level)//将每一层上的图像的每个像素点构造点云
+void TrackingReference::makePointCloud(int level)//将每一层图像上有深度信息的像素点构造点云
 {
 	assert(keyframe != 0);
 	boost::unique_lock<boost::mutex> lock(accessMutex);
