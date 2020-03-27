@@ -35,6 +35,7 @@
 #include <g2o/core/robust_kernel_impl.h>
 #include "DataStructures/FrameMemory.h"
 #include "deque"
+#include "ORBextractor.h"
 
 // for mkdir
 #include <sys/types.h>

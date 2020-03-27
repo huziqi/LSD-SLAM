@@ -22,7 +22,7 @@
 #include "DataStructures/FrameMemory.h"
 #include "DepthEstimation/DepthMapPixelHypothesis.h"
 #include "Tracking/TrackingReference.h"
-#include "ORBextractor.h"
+
 
 namespace lsd_slam
 {

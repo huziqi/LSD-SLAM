@@ -32,8 +32,6 @@
 
 #include "Tracking/Relocalizer.h"
 
-#include "ORBextractor.h"
-
 
 namespace lsd_slam
 {
@@ -49,6 +47,7 @@ class LiveSLAMWrapper;
 class Output3DWrapper;
 class TrackableKeyFrameSearch;
 class FramePoseStruct;
+class ORBextractor;
 struct KFConstraintStruct;
 
 

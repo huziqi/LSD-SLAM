@@ -28,7 +28,7 @@
 #include "unordered_set"
 #include "util/settings.h"
 #include <opencv2/opencv.hpp>
-
+#include "ORBextractor.h"
 
 namespace lsd_slam
 {
@@ -36,6 +36,7 @@ namespace lsd_slam
 
 class DepthMapPixelHypothesis;
 class TrackingReference;
+class ORBextractor;
 /**
  */
 
@@ -46,9 +47,9 @@ public:
 	friend class FrameMemory;
 
 
-	Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const unsigned char* image);
+	Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const unsigned char* image, ORBextractor* extractor);
 
-	Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const float* image);
+	Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const float* image, ORBextractor* extractor);
 
 	~Frame();
 	
