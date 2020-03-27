@@ -22,6 +22,7 @@
 #include "DataStructures/FrameMemory.h"
 #include "DepthEstimation/DepthMapPixelHypothesis.h"
 #include "Tracking/TrackingReference.h"
+#include "ORBextractor.h"
 
 namespace lsd_slam
 {
@@ -32,7 +33,7 @@ int privateFrameAllocCount = 0;
 
 
 
-Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const unsigned char* image)
+Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const unsigned char* image, ORBextractor* extractor)
 {
 	initialize(id, width, height, K, timestamp);
 	
@@ -49,11 +50,14 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 
 	privateFrameAllocCount++;
 
+	//# ORB extract
+	(*extractor)(image,cv::Mat(),fKeypoints,fDescriptors, true);
+
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);
 }
 
-Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const float* image)
+Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const float* image, ORBextractor* extractor)
 {
 	initialize(id, width, height, K, timestamp);
 	
@@ -62,6 +66,9 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 	data.imageValid[0] = true;
 
 	privateFrameAllocCount++;
+
+	//# ORB extract
+	(*extractor)(image,cv::Mat(),fKeypoints,fDescriptors, true);
 
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);

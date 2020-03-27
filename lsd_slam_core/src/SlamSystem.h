@@ -32,6 +32,7 @@
 
 #include "Tracking/Relocalizer.h"
 
+#include "ORBextractor.h"
 
 
 namespace lsd_slam
@@ -120,6 +121,8 @@ public:
 
 private:
 
+	//# ORB extractor
+	ORBextractor* ORBextractorMono;
 
 	// ============= EXCLUSIVELY TRACKING THREAD (+ init) ===============
 	TrackingReference* trackingReference; // tracking reference for current keyframe. only used by tracking.

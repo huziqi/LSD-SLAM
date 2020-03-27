@@ -81,6 +81,16 @@ SlamSystem::SlamSystem(int w, int h, Eigen::Matrix3f K, bool enableSLAM)
 	trackingReference = new TrackingReference();
 	mappingTrackingReference = new TrackingReference();
 
+	//# 新建ORBextractor对象
+	cv::FileStorage fSettings("./ORBFeatures.yaml", cv::FileStorage::READ);
+
+	int nFeatures = fSettings["ORBextractor.nFeatures"];
+    float fScaleFactor = fSettings["ORBextractor.scaleFactor"];
+    int nLevels = fSettings["ORBextractor.nLevels"];
+    int fIniThFAST = fSettings["ORBextractor.iniThFAST"];
+    int fMinThFAST = fSettings["ORBextractor.minThFAST"];
+
+	ORBextractorMono = new ORBextractor(nFeatures,fScaleFactor,nLevels,fIniThFAST,fMinThFAST);
 
 	if(SLAMEnabled)
 	{
@@ -121,7 +131,6 @@ SlamSystem::SlamSystem(int w, int h, Eigen::Matrix3f K, bool enableSLAM)
 	nTrackFrame = nOptimizationIteration = nFindConstraintsItaration = nFindReferences = 0;
 	nAvgTrackFrame = nAvgOptimizationIteration = nAvgFindConstraintsItaration = nAvgFindReferences = 0;
 	gettimeofday(&lastHzUpdate, NULL);
-
 }
 
 SlamSystem::~SlamSystem()
@@ -862,7 +871,7 @@ void SlamSystem::randomInit(uchar* image, double timeStamp, int id)//第一帧�
 
 	currentKeyFrameMutex.lock();
 
-	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image));//构建第一帧关键帧
+	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image, ORBextractorMono));//构建第一帧关键帧
 	map->initializeRandomly(currentKeyFrame.get());//随机初始化深度图
 	keyFrameGraph->addFrame(currentKeyFrame.get());//将第一帧的位姿插入关键帧图中
 
@@ -888,8 +897,10 @@ void SlamSystem::randomInit(uchar* image, double timeStamp, int id)//第一帧�
 void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilMapped, double timestamp)//初始化后开始追踪线程
 {
 	// Create new frame
-	std::shared_ptr<Frame> trackingNewFrame(new Frame(frameID, width, height, K, timestamp, image));
+	std::shared_ptr<Frame> trackingNewFrame(new Frame(frameID, width, height, K, timestamp, image, ORBextractorMono));
 
+	if(trackingNewFrame->fKeypoints.empty()) printf("cant extarct ORB features!!!!!!!!!!!");
+	
 	if(!trackingIsGood)//跟丢后重定位
 	{
 		relocalizer.updateCurrentFrame(trackingNewFrame);

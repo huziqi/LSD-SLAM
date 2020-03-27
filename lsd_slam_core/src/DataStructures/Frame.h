@@ -27,6 +27,7 @@
 #include "DataStructures/FrameMemory.h"
 #include "unordered_set"
 #include "util/settings.h"
+#include <opencv2/opencv.hpp>
 
 
 namespace lsd_slam
@@ -204,6 +205,10 @@ public:
 	float edgeErrorSum, edgesNum;
 	int numMappablePixels;
 	float meanInformation;
+
+	//# 存储每一帧的关键点和描述子
+	std::vector<cv::KeyPoint> fKeypoints;
+    cv::Mat fDescriptors;
 
 private:
 
