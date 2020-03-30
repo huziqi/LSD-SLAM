@@ -892,6 +892,18 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 	// Create new frame
 	std::shared_ptr<Frame> trackingNewFrame(new Frame(frameID, width, height, K, timestamp, image));
 
+	//#
+	//检测Oriented Fast角点
+	//ORBMutex.lock();
+	trackingNewFrame->orb = FeatureDetector::create ( "ORB" );
+	trackingNewFrame->descriptor = DescriptorExtractor::create ( "ORB" );
+	trackingNewFrame->orb->detect(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints);
+	//根据角点位置计算BRIEF描述子
+	trackingNewFrame->descriptor->compute(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints, trackingNewFrame->fDescriptors);
+	//std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
+	printf("keypoint's size: %d\n",trackingNewFrame->fKeypoints.size());
+	//ORBMutex.unlock();
+
 	if(!trackingIsGood)
 	{
 		relocalizer.updateCurrentFrame(trackingNewFrame);

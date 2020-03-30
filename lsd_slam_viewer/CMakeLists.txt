@@ -8,6 +8,7 @@ project(lsd_slam_viewer)
 #  RelWithDebInfo : w/ debug symbols, w/ optimization
 #  MinSizeRel : w/o debug symbols, w/ optimization, stripped binaries
 set(CMAKE_BUILD_TYPE Release)
+#set(CMAKE_BUILD_TYPE Debug)
 
 ADD_SUBDIRECTORY(${PROJECT_SOURCE_DIR}/thirdparty/Sophus)
 
@@ -23,6 +24,7 @@ find_package(catkin REQUIRED COMPONENTS
   roslib
 )
 
+find_package(cmake_modules REQUIRED)
 find_package(OpenGL REQUIRED)
 set(QT_USE_QTOPENGL TRUE)
 set(QT_USE_QTXML TRUE)
@@ -68,13 +70,16 @@ include_directories(
   ${PROJECT_SOURCE_DIR}/thirdparty/Sophus
 )  
 
+
 add_executable(viewer src/main_viewer.cpp ${SOURCE_FILES} ${HEADER_FILES})
+add_dependencies(viewer lsd_slam_viewer_generate_messages_cpp)
 target_link_libraries(viewer ${QGLViewer_LIBRARIES}
 			     ${QGLVIEWER_LIBRARY} 
 			     ${catkin_LIBRARIES}
 			     ${Boost_LIBRARIES}
 			     ${QT_LIBRARIES}
-			     GL glut GLU
+			     ${OpenCV_LIBS}
+			     GL glut GLU X11
 		     )
 
 #add_executable(videoStitch src/main_stitchVideos.cpp)

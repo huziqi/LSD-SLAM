@@ -27,6 +27,10 @@
 #include "DataStructures/FrameMemory.h"
 #include "unordered_set"
 #include "util/settings.h"
+#include <opencv2/opencv.hpp>
+
+using namespace cv;
+using namespace std;
 
 
 namespace lsd_slam
@@ -41,6 +45,7 @@ class TrackingReference;
 class Frame
 {
 public:
+
 	EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 	friend class FrameMemory;
 
@@ -112,6 +117,13 @@ public:
 	inline bool* refPixelWasGood();
 	inline bool* refPixelWasGoodNoCreate();
 	inline void clear_refPixelWasGood();
+
+	//# 存储每一帧的关键点和描述子
+	std::vector<cv::KeyPoint> fKeypoints;
+    cv::Mat fDescriptors;
+	cv::Ptr<FeatureDetector> orb;
+	cv::Ptr<DescriptorExtractor> descriptor;
+	boost::shared_mutex ORBMutex;
 
 	/** Flags for use with require() and requirePyramid(). See the Frame class
 	  * documentation for their exact meaning. */

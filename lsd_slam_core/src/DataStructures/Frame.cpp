@@ -22,6 +22,12 @@
 #include "DataStructures/FrameMemory.h"
 #include "DepthEstimation/DepthMapPixelHypothesis.h"
 #include "Tracking/TrackingReference.h"
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/features2d/features2d.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+
+using namespace cv;
 
 namespace lsd_slam
 {
@@ -49,6 +55,23 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 
 	privateFrameAllocCount++;
 
+	// //#
+	// //检测Oriented Fast角点
+	// ORBMutex.lock();
+	// cout<<"1111111111111111111111"<<endl;
+	// orb = FeatureDetector::create ( "ORB" );
+	// descriptor = DescriptorExtractor::create ( "ORB" );
+
+	// orb->detect(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints);
+	// //根据角点位置计算BRIEF描述子
+	// cout<<"222222222222222222222222"<<endl;
+	// descriptor->compute(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints, fDescriptors);
+	// cout<<"33333333333333333333333"<<endl;
+	// //std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
+	// cout<<"44444444444444444444444"<<endl;
+	// printf("keypoint's size: %d\n",fKeypoints.size());
+	// ORBMutex.unlock();
+	
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);
 }
@@ -62,6 +85,17 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 	data.imageValid[0] = true;
 
 	privateFrameAllocCount++;
+
+	//#
+	//Ptr<ORB> orb = ORB::create(1000, 1.2, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
+	//检测Oriented Fast角点
+	// ORBMutex.lock();
+	// orb->detect(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints);
+	// //根据角点位置计算BRIEF描述子
+	// descriptor->compute(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints, fDescriptors);
+	// //std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
+	// printf("keypoint's size: %d\n",fKeypoints.size());
+	// ORBMutex.unlock();
 
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);

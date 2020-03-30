@@ -1,0 +1,14 @@
+<launch>
+
+    <node pkg="lsd_slam_core" type="live_slam" name="live_slam" output="screen" launch-prefix="xterm -e">
+    
+
+    <!-- Camera topic to subscribe to -->
+    <param name="image" value="/image_raw" type="str" />
+
+    <!-- Camera topic to subscribe to -->
+    <param name="camera_info" value="/camera_info" type="str" />
+    </node>
+
+    
+</launch>
