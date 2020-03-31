@@ -68,6 +68,12 @@ public:
 	int* pointPosInXYGrid[PYRAMID_LEVELS];	// x + y*width
 	int numData[PYRAMID_LEVELS];
 
+	//used in reprojection
+	Eigen::Vector3f* projectposData;	// (x,y,z)
+	Eigen::Vector2f* projectgradData;	// (dx, dy)
+	Eigen::Vector2f* projectcolorAndVarData;	// (I, Var)
+	int projectnumData;
+
 private:
 	int wh_allocated;
 	boost::mutex accessMutex;

@@ -20,6 +20,7 @@
 
 #include "SE3Tracker.h"
 #include <opencv2/highgui/highgui.hpp>
+#include <opencv2/opencv.hpp>
 #include "DataStructures/Frame.h"
 #include "Tracking/TrackingReference.h"
 #include "util/globalFuncs.h"
@@ -27,6 +28,8 @@
 #include "Tracking/least_squares.h"
 
 #include <Eigen/Core>
+
+using namespace cv;
 
 namespace lsd_slam
 {
@@ -112,6 +115,18 @@ SE3Tracker::~SE3Tracker()
 	Eigen::internal::aligned_free((void*)buf_d);
 	Eigen::internal::aligned_free((void*)buf_idepthVar);
 	Eigen::internal::aligned_free((void*)buf_weight_p);
+
+	//#
+	Eigen::internal::aligned_free((void*)project_buf_warped_residual);
+	Eigen::internal::aligned_free((void*)project_buf_warped_dx);
+	Eigen::internal::aligned_free((void*)project_buf_warped_dy);
+	Eigen::internal::aligned_free((void*)project_buf_warped_x);
+	Eigen::internal::aligned_free((void*)project_buf_warped_y);
+	Eigen::internal::aligned_free((void*)project_buf_warped_z);
+
+	Eigen::internal::aligned_free((void*)project_buf_d);
+	Eigen::internal::aligned_free((void*)project_buf_idepthVar);
+	Eigen::internal::aligned_free((void*)project_buf_weight_p);
 }
 
 
@@ -301,11 +316,15 @@ SE3 SE3Tracker::trackFrame(
 			for (int col = 0; col < width; ++ col)
 				setPixelInCvMat(&debugImageSecondFrame,getGrayCvPixel(frameImage[col+row*width]), col, row, 1);
 	}
+	
+
 
 	// ============ track frame ============
 	Sophus::SE3f referenceToFrame = frameToReference_initialEstimate.inverse().cast<float>();
 	NormalEquationsLeastSquares ls;
 
+	// ============ 计算重投影误差 ===========
+	ProjectionResiduals(reference, frame, referenceToFrame);
 
 	int numCalcResidualCalls[PYRAMID_LEVELS];
 	int numCalcWarpUpdateCalls[PYRAMID_LEVELS];
@@ -320,6 +339,7 @@ SE3 SE3Tracker::trackFrame(
 
 		reference->makePointCloud(lvl);
 
+		//计算残差
 		callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
 		if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * (width>>lvl)*(height>>lvl))
 		{
@@ -328,12 +348,12 @@ SE3 SE3Tracker::trackFrame(
 			return SE3();
 		}
 
-		if(useAffineLightningEstimation)
+		if(useAffineLightningEstimation)//光照仿射变换
 		{
 			affineEstimation_a = affineEstimation_a_lastIt;
 			affineEstimation_b = affineEstimation_b_lastIt;
 		}
-		float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame));
+		float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame));////计算归一化方差的光度误差系数，返回值是归一化光度误差均值
 
 		numCalcResidualCalls[lvl]++;
 
@@ -343,7 +363,7 @@ SE3 SE3Tracker::trackFrame(
 		for(int iteration=0; iteration < settings.maxItsPerLvl[lvl]; iteration++)
 		{
 
-			callOptimized(calculateWarpUpdate,(ls));
+			callOptimized(calculateWarpUpdate,(ls));////计算雅可比以及最小二乘系数
 
 			numCalcWarpUpdateCalls[lvl]++;
 
@@ -1316,6 +1336,94 @@ Vector6 SE3Tracker::calculateWarpUpdate(
 	ls.solve(result);
 
 	return result;
+}
+
+
+//# 
+float SE3Tracker::ProjectionResiduals(
+		TrackingReference* reference,
+		Frame* frame,
+		const Sophus::SE3f& referenceToFrame)
+{
+	// 长宽和相机内参
+	int w = frame->width(0);
+	int h = frame->height(0);
+	Eigen::Matrix3f KLvl = frame->K(0);
+	float fx = KLvl(0,0);
+	float fy = KLvl(1,1);
+	float cx = KLvl(0,2);
+	float cy = KLvl(1,2);
+
+	float fxInvLevel = keyframe->fxInv(level);
+	float fyInvLevel = keyframe->fyInv(level);
+	float cxInvLevel = keyframe->cxInv(level);
+	float cyInvLevel = keyframe->cyInv(level);
+
+	// 位姿变换旋转矩阵和平移矩阵
+	Eigen::Matrix3f rotMat = referenceToFrame.rotationMatrix();
+	Eigen::Vector3f transVec = referenceToFrame.translation();
+
+	const float* pyrIdepthSource = reference->keyframe->idepth(0);
+	const float* pyrIdepthVarSource = reference->keyframe->idepthVar(0);
+	const float* pyrColorSource = reference->keyframe->image(0);
+	const Eigen::Vector4f* pyrGradSource = reference->keyframe->gradients(0);
+
+	Eigen::Vector3f* posDataPT = reference->projectposData;
+	Eigen::Vector2f* gradDataPT = reference->projectgradData;
+	Eigen::Vector2f* colorAndVarDataPT = reference->projectcolorAndVarData;
+	
+	
+	for(KeyPoint keypoint : reference->keyframe->fKeypoints)
+	{
+		int x = keypoint.pt.x;
+		int y = keypoint.pt.y;
+		int idx = x + y*w;
+
+		// 为了保障数量足够的特征点能被投影到当前帧
+		if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+		{
+			if(x<w-1) idx=x+1+y*w;
+			if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+			{
+				if(x>1) idx=x-1+y*w;
+				if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+				{
+					if(y<w-1) idx=x+(y+1)*w;
+					if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+					{
+						if(y>1) idx=x+(y-1)*w;
+						if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0) continue;
+					}
+				}
+			}
+		}
+
+		// 构造3D点
+		*posDataPT = (1.0f / pyrIdepthSource[idx]) * Eigen::Vector3f(fxInvLevel*x+cxInvLevel,fyInvLevel*y+cyInvLevel,1);
+		*gradDataPT = pyrGradSource[idx].head<2>();
+		*colorAndVarDataPT = Eigen::Vector2f(pyrColorSource[idx], pyrIdepthVarSource[idx]);
+
+		//3D点投影到当前帧
+		Eigen::Vector3f Wxp = rotMat * (*posDataPT) + transVec;
+		float u_new = (Wxp[0]/Wxp[2])*fx + cx;
+		float v_new = (Wxp[1]/Wxp[2])*fy + cy;
+
+		if(!(u_new > 1 && v_new > 1 && u_new < w-2 && v_new < h-2))
+		{
+			if(isGoodOutBuffer != 0)
+				isGoodOutBuffer[*idxBuf] = false;
+			continue;
+		}
+
+
+
+		posDataPT++;
+		gradDataPT++;
+		colorAndVarDataPT++;
+
+
+	}
+		return 0;
 }
 
 

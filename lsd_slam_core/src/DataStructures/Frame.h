@@ -121,9 +121,9 @@ public:
 	//# 存储每一帧的关键点和描述子
 	std::vector<cv::KeyPoint> fKeypoints;
     cv::Mat fDescriptors;
-	cv::Ptr<FeatureDetector> orb;
-	cv::Ptr<DescriptorExtractor> descriptor;
+	ORB* orb=new ORB(1000,1.2f,8,31,0,2,0,31);
 	boost::shared_mutex ORBMutex;
+	
 
 	/** Flags for use with require() and requirePyramid(). See the Frame class
 	  * documentation for their exact meaning. */

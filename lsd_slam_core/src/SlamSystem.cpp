@@ -865,6 +865,16 @@ void SlamSystem::randomInit(uchar* image, double timeStamp, int id)
 	currentKeyFrameMutex.lock();
 
 	currentKeyFrame.reset(new Frame(id, width, height, K, timeStamp, image));
+
+	//#
+	//trackingNewFrame->ORBMutex.lock();
+	//检测Oriented Fast角点
+	currentKeyFrame->orb->detect(Mat(height, width, CV_8U, (void *)image), currentKeyFrame->fKeypoints);
+	//根据角点位置计算BRIEF描述子
+	currentKeyFrame->orb->compute(Mat(height, width, CV_8U, (void *)image), currentKeyFrame->fKeypoints, currentKeyFrame->fDescriptors);
+	//trackingNewFrame->ORBMutex.unlock();
+
+
 	map->initializeRandomly(currentKeyFrame.get());
 	keyFrameGraph->addFrame(currentKeyFrame.get());
 
@@ -893,18 +903,17 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 	std::shared_ptr<Frame> trackingNewFrame(new Frame(frameID, width, height, K, timestamp, image));
 
 	//#
+	//trackingNewFrame->ORBMutex.lock();
 	//检测Oriented Fast角点
-	//ORBMutex.lock();
-	trackingNewFrame->orb = FeatureDetector::create ( "ORB" );
-	trackingNewFrame->descriptor = DescriptorExtractor::create ( "ORB" );
 	trackingNewFrame->orb->detect(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints);
 	//根据角点位置计算BRIEF描述子
-	trackingNewFrame->descriptor->compute(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints, trackingNewFrame->fDescriptors);
+	trackingNewFrame->orb->compute(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints, trackingNewFrame->fDescriptors);
 	//std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
-	printf("keypoint's size: %d\n",trackingNewFrame->fKeypoints.size());
-	//ORBMutex.unlock();
+	//printf("keypoint's size: %d\n",trackingNewFrame->fKeypoints.size());
+	//trackingNewFrame->ORBMutex.unlock();
 
-	if(!trackingIsGood)
+		
+	if(!trackingIsGood)//重定位
 	{
 		relocalizer.updateCurrentFrame(trackingNewFrame);
 

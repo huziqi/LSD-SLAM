@@ -106,7 +106,21 @@ private:
 	float* buf_idepthVar;
 	float* buf_weight_p;
 
+	//#
+	float* project_buf_warped_residual;
+	float* project_buf_warped_dx;
+	float* project_buf_warped_dy;
+	float* project_buf_warped_x;
+	float* project_buf_warped_y;
+	float* project_buf_warped_z;
+
+	float* project_buf_d;
+	float* project_buf_idepthVar;
+	float* project_buf_weight_p;
+
 	int buf_warped_size;
+	int project_buf_warped_size;
+
 
 
 	float calcResidualAndBuffers(
@@ -176,6 +190,14 @@ private:
 
 	void calcResidualAndBuffers_debugStart();
 	void calcResidualAndBuffers_debugFinish(int w);
+
+
+
+
+	float ProjectionResiduals(
+		TrackingReference* reference,
+		Frame* frame,
+		const Sophus::SE3f& referenceToFrame);
 
 
 	// used for image saving

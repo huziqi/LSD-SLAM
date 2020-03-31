@@ -42,6 +42,9 @@ TrackingReference::TrackingReference()
 		pointPosInXYGrid[level] = nullptr;
 		numData[level] = 0;
 	}
+	projectposData = nullptr;
+	projectgradData = nullptr;
+	projectcolorAndVarData = nullptr;
 }
 void TrackingReference::releaseAll()
 {
@@ -54,6 +57,10 @@ void TrackingReference::releaseAll()
 			Eigen::internal::aligned_free((void*)pointPosInXYGrid[level]);
 		numData[level] = 0;
 	}
+	//#
+	if(projectposData != nullptr) delete[] projectposData;
+	if(projectcolorAndVarData != nullptr) delete[] projectcolorAndVarData;
+	if(projectgradData != nullptr) delete[] gradData;
 	wh_allocated = 0;
 }
 void TrackingReference::clearAll()
