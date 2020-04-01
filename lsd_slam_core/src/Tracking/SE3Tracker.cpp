@@ -1372,14 +1372,14 @@ float SE3Tracker::ProjectionResiduals(
 	Eigen::Vector2f* gradDataPT = reference->projectgradData;
 	Eigen::Vector2f* colorAndVarDataPT = reference->projectcolorAndVarData;
 	
-	
+	//==================== 逐参考帧的关键点匹配 ==========================
 	for(KeyPoint keypoint : reference->keyframe->fKeypoints)
 	{
-		int x = keypoint.pt.x;
-		int y = keypoint.pt.y;
+		int x = round(keypoint.pt.x);
+		int y = round(keypoint.pt.y);
 		int idx = x + y*w;
 
-		// 为了保障数量足够的特征点能被投影到当前帧
+		// 为了保障数量足够的特征点能被投影到当前帧,!!!!!!!!!!这里可能不能使用LSD的点云，要通过orb自己建图
 		if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
 		{
 			if(x<w-1) idx=x+1+y*w;
@@ -1408,13 +1408,79 @@ float SE3Tracker::ProjectionResiduals(
 		float u_new = (Wxp[0]/Wxp[2])*fx + cx;
 		float v_new = (Wxp[1]/Wxp[2])*fy + cy;
 
-		if(!(u_new > 1 && v_new > 1 && u_new < w-2 && v_new < h-2))
+		if(!(u_new > 1 && v_new > 1 && u_new < w-2 && v_new < h-2)) 
 		{
-			if(isGoodOutBuffer != 0)
-				isGoodOutBuffer[*idxBuf] = false;
+			posDataPT++;
+			gradDataPT++;
+			colorAndVarDataPT++;
 			continue;
 		}
 
+		int nLastOctave = keypoint.octave;
+
+		//====================== 选出当前帧的候选关键点 ==========================
+		float radius = 15*reference->mvScaleFactor[nLastOctave];
+		vector<size_t> vIndices;//待匹配候选特征点
+		vIndices = frame->GetFeaturesInArea(u_new,v_new, radius, nLastOctave-1, nLastOctave+1);
+
+		if(vIndices.empty()) 
+		{
+			posDataPT++;
+			gradDataPT++;
+			colorAndVarDataPT++;
+
+			continue;
+		}
+
+		//====================== 在候选关键点里选出匹配点 ========================
+		const cv::Mat dMP = 
+
+		int bestDist = 256;
+		int bestIdx2 = -1;
+
+		for(vector<size_t>::const_iterator vit=vIndices2.begin(), vend=vIndices2.end(); vit!=vend; vit++)
+		{
+			const size_t i2 = *vit;
+			if(CurrentFrame.mvpMapPoints[i2])
+				if(CurrentFrame.mvpMapPoints[i2]->Observations()>0)
+					continue;
+
+			if(CurrentFrame.mvuRight[i2]>0)
+			{
+				const float ur = u - CurrentFrame.mbf*invzc;
+				const float er = fabs(ur - CurrentFrame.mvuRight[i2]);
+				if(er>radius)
+					continue;
+			}
+
+			const cv::Mat &d = CurrentFrame.mDescriptors.row(i2);
+
+			const int dist = DescriptorDistance(dMP,d);
+
+			if(dist<bestDist)
+			{
+				bestDist=dist;
+				bestIdx2=i2;
+			}
+		}
+
+		if(bestDist<=TH_HIGH)
+		{
+			CurrentFrame.mvpMapPoints[bestIdx2]=pMP;
+			nmatches++;
+
+			if(mbCheckOrientation)
+			{
+				float rot = LastFrame.mvKeysUn[i].angle-CurrentFrame.mvKeysUn[bestIdx2].angle;
+				if(rot<0.0)
+					rot+=360.0f;
+				int bin = round(rot*factor);
+				if(bin==HISTO_LENGTH)
+					bin=0;
+				assert(bin>=0 && bin<HISTO_LENGTH);
+				rotHist[bin].push_back(bestIdx2);
+			}
+		}
 
 
 		posDataPT++;

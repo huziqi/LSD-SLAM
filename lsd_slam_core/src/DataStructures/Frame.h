@@ -35,10 +35,10 @@ using namespace std;
 
 namespace lsd_slam
 {
-
-
-class DepthMapPixelHypothesis;
-class TrackingReference;
+#define FRAME_GRID_ROWS 48
+#define FRAME_GRID_COLS 64
+#define KEYPOINT_LEVEL 8
+#define KEYPOINT_FACTOR 1.2
 /**
  */
 
@@ -119,10 +119,24 @@ public:
 	inline void clear_refPixelWasGood();
 
 	//# 存储每一帧的关键点和描述子
+	int kpLevel;
+	float kpFactor;
+
 	std::vector<cv::KeyPoint> fKeypoints;
     cv::Mat fDescriptors;
 	ORB* orb=new ORB(1000,1.2f,8,31,0,2,0,31);
+	int keypointSize;
+	std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
 	boost::shared_mutex ORBMutex;
+
+	static float mfGridElementWidthInv;
+    static float mfGridElementHeightInv;
+
+	void AssignFeaturesToGrid();
+	bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
+	vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
+
+	std::vector<float> mvScaleFactor;
 	
 
 	/** Flags for use with require() and requirePyramid(). See the Frame class
@@ -216,6 +230,8 @@ public:
 	float edgeErrorSum, edgesNum;
 	int numMappablePixels;
 	float meanInformation;
+
+	
 
 private:
 

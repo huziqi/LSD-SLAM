@@ -35,7 +35,7 @@ namespace lsd_slam
 int privateFrameAllocCount = 0;
 
 
-
+float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 
 
 Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double timestamp, const unsigned char* image)
@@ -55,22 +55,18 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 
 	privateFrameAllocCount++;
 
-	// //#
-	// //检测Oriented Fast角点
-	// ORBMutex.lock();
-	// cout<<"1111111111111111111111"<<endl;
-	// orb = FeatureDetector::create ( "ORB" );
-	// descriptor = DescriptorExtractor::create ( "ORB" );
+	mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/(width);
+    mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/(height);
 
-	// orb->detect(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints);
-	// //根据角点位置计算BRIEF描述子
-	// cout<<"222222222222222222222222"<<endl;
-	// descriptor->compute(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints, fDescriptors);
-	// cout<<"33333333333333333333333"<<endl;
-	// //std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
-	// cout<<"44444444444444444444444"<<endl;
-	// printf("keypoint's size: %d\n",fKeypoints.size());
-	// ORBMutex.unlock();
+	kpLevel=KEYPOINT_LEVEL;
+	kpFactor=KEYPOINT_FACTOR;
+
+	mvScaleFactor.resize(kpLevel);
+    mvScaleFactor[0]=1.0f;
+    for(int i=1; i<kpLevel; i++)
+    {
+        mvScaleFactor[i]=mvScaleFactor[i-1]*kpFactor;
+    }
 	
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);
@@ -86,16 +82,18 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 
 	privateFrameAllocCount++;
 
-	//#
-	//Ptr<ORB> orb = ORB::create(1000, 1.2, 8, 31, 0, 2, ORB::HARRIS_SCORE, 31, 20);
-	//检测Oriented Fast角点
-	// ORBMutex.lock();
-	// orb->detect(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints);
-	// //根据角点位置计算BRIEF描述子
-	// descriptor->compute(Mat(data.height[0], data.width[0], CV_8U, (void *)image), fKeypoints, fDescriptors);
-	// //std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
-	// printf("keypoint's size: %d\n",fKeypoints.size());
-	// ORBMutex.unlock();
+	mfGridElementWidthInv=static_cast<float>(FRAME_GRID_COLS)/(width);
+    mfGridElementHeightInv=static_cast<float>(FRAME_GRID_ROWS)/(height);
+
+	kpLevel=KEYPOINT_LEVEL;
+	kpFactor=KEYPOINT_FACTOR;
+
+	mvScaleFactor.resize(kpLevel);
+    mvScaleFactor[0]=1.0f;
+    for(int i=1; i<kpLevel; i++)
+    {
+        mvScaleFactor[i]=mvScaleFactor[i-1]*kpFactor;
+    }
 
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);
@@ -939,4 +937,92 @@ void Frame::printfAssert(const char* message) const
 	assert(!message);
 	printf("%s\n", message);
 }
+
+void Frame::AssignFeaturesToGrid()
+{
+    int nReserve = 0.5f*keypointSize/(FRAME_GRID_COLS*FRAME_GRID_ROWS);
+    for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
+        for (unsigned int j=0; j<FRAME_GRID_ROWS;j++)
+            mGrid[i][j].reserve(nReserve);
+
+    for(int i=0;i<keypointSize;i++)
+    {
+        const cv::KeyPoint &kp = fKeypoints[i];
+
+        int nGridPosX, nGridPosY;
+        if(PosInGrid(kp,nGridPosX,nGridPosY))
+            mGrid[nGridPosX][nGridPosY].push_back(i);
+    }
+}
+
+bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
+{
+	if(kp.pt.x<data.width[0]&&kp.pt.y<data.height[0])
+	{
+		posX = floor(kp.pt.x*mfGridElementWidthInv);
+    	posY = floor(kp.pt.y*mfGridElementHeightInv);
+	}
+    
+    //Keypoint's coordinates are undistorted, which could cause to go out of the image
+    if(posX<0 || posX>=FRAME_GRID_COLS || posY<0 || posY>=FRAME_GRID_ROWS)
+        return false;
+
+    return true;
+}
+
+vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
+{
+    vector<size_t> vIndices;
+    vIndices.reserve(keypointSize);
+
+    const int nMinCellX = max(0,(int)floor((x-r)*mfGridElementWidthInv));
+    if(nMinCellX>=FRAME_GRID_COLS)
+        return vIndices;
+
+    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x+r)*mfGridElementWidthInv));
+    if(nMaxCellX<0)
+        return vIndices;
+
+    const int nMinCellY = max(0,(int)floor((y-r)*mfGridElementHeightInv));
+    if(nMinCellY>=FRAME_GRID_ROWS)
+        return vIndices;
+
+    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,(int)ceil((y+r)*mfGridElementHeightInv));
+    if(nMaxCellY<0)
+        return vIndices;
+
+    const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
+
+    for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
+    {
+        for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
+        {
+            const vector<size_t> vCell = mGrid[ix][iy];
+            if(vCell.empty())
+                continue;
+
+            for(size_t j=0, jend=vCell.size(); j<jend; j++)
+            {
+                const cv::KeyPoint &kpUn = fKeypoints[vCell[j]];
+                if(bCheckLevels)
+                {
+                    if(kpUn.octave<minLevel)
+                        continue;
+                    if(maxLevel>=0)
+                        if(kpUn.octave>maxLevel)
+                            continue;
+                }
+
+                const float distx = kpUn.pt.x-x;
+                const float disty = kpUn.pt.y-y;
+
+                if(fabs(distx)<r && fabs(disty)<r)
+                    vIndices.push_back(vCell[j]);
+            }
+        }
+    }
+
+    return vIndices;
+}
+
 }

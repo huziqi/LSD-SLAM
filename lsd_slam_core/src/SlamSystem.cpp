@@ -872,6 +872,8 @@ void SlamSystem::randomInit(uchar* image, double timeStamp, int id)
 	currentKeyFrame->orb->detect(Mat(height, width, CV_8U, (void *)image), currentKeyFrame->fKeypoints);
 	//根据角点位置计算BRIEF描述子
 	currentKeyFrame->orb->compute(Mat(height, width, CV_8U, (void *)image), currentKeyFrame->fKeypoints, currentKeyFrame->fDescriptors);
+	currentKeyFrame->keypointSize=currentKeyFrame->fKeypoints.size();
+	currentKeyFrame->AssignFeaturesToGrid();
 	//trackingNewFrame->ORBMutex.unlock();
 
 
@@ -908,6 +910,8 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 	trackingNewFrame->orb->detect(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints);
 	//根据角点位置计算BRIEF描述子
 	trackingNewFrame->orb->compute(Mat(height, width, CV_8U, (void *)image), trackingNewFrame->fKeypoints, trackingNewFrame->fDescriptors);
+	trackingNewFrame->keypointSize=trackingNewFrame->fKeypoints.size();
+	trackingNewFrame->AssignFeaturesToGrid();
 	//std::cout<<"keypoint's size: "<<fKeypoints.size()<<endl;
 	//printf("keypoint's size: %d\n",trackingNewFrame->fKeypoints.size());
 	//trackingNewFrame->ORBMutex.unlock();
