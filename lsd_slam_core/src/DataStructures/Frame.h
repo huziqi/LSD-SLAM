@@ -39,6 +39,10 @@ namespace lsd_slam
 #define FRAME_GRID_COLS 64
 #define KEYPOINT_LEVEL 8
 #define KEYPOINT_FACTOR 1.2
+#define HISTO_LENGTH 30
+
+class DepthMapPixelHypothesis;
+class TrackingReference;
 /**
  */
 
@@ -133,10 +137,11 @@ public:
     static float mfGridElementHeightInv;
 
 	void AssignFeaturesToGrid();
-	bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
+	bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 	vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
 
 	std::vector<float> mvScaleFactor;
+	int nmatches;//特征点匹配数量
 	
 
 	/** Flags for use with require() and requirePyramid(). See the Frame class

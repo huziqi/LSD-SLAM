@@ -60,7 +60,7 @@ void TrackingReference::releaseAll()
 	//#
 	if(projectposData != nullptr) delete[] projectposData;
 	if(projectcolorAndVarData != nullptr) delete[] projectcolorAndVarData;
-	if(projectgradData != nullptr) delete[] gradData;
+	if(projectgradData != nullptr) delete[] projectgradData;
 	wh_allocated = 0;
 }
 void TrackingReference::clearAll()

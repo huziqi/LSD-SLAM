@@ -30,6 +30,7 @@
 #include <Eigen/Core>
 
 using namespace cv;
+using namespace std;
 
 namespace lsd_slam
 {
@@ -78,6 +79,19 @@ SE3Tracker::SE3Tracker(int w, int h, Eigen::Matrix3f K)
 	buf_idepthVar = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
 	buf_weight_p = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
 
+	//#
+	project_buf_warped_residual_x = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_warped_residual_y = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_warped_dx = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_warped_dy = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_warped_x = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_warped_y = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_warped_z = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+
+	project_buf_d = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_idepthVar = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+	project_buf_weight_p = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
+
 	buf_warped_size = 0;
 
 	debugImageWeights = cv::Mat(height,width,CV_8UC3);
@@ -117,7 +131,8 @@ SE3Tracker::~SE3Tracker()
 	Eigen::internal::aligned_free((void*)buf_weight_p);
 
 	//#
-	Eigen::internal::aligned_free((void*)project_buf_warped_residual);
+	Eigen::internal::aligned_free((void*)project_buf_warped_residual_x);
+	Eigen::internal::aligned_free((void*)project_buf_warped_residual_y);
 	Eigen::internal::aligned_free((void*)project_buf_warped_dx);
 	Eigen::internal::aligned_free((void*)project_buf_warped_dy);
 	Eigen::internal::aligned_free((void*)project_buf_warped_x);
@@ -325,6 +340,7 @@ SE3 SE3Tracker::trackFrame(
 
 	// ============ 计算重投影误差 ===========
 	ProjectionResiduals(reference, frame, referenceToFrame);
+	//std::cout<<"keypoints' matches: "<<reference->keyframe->nmatches<<endl;
 
 	int numCalcResidualCalls[PYRAMID_LEVELS];
 	int numCalcWarpUpdateCalls[PYRAMID_LEVELS];
@@ -1345,6 +1361,9 @@ float SE3Tracker::ProjectionResiduals(
 		Frame* frame,
 		const Sophus::SE3f& referenceToFrame)
 {
+
+	bool mbCheckOrientation = false;
+
 	// 长宽和相机内参
 	int w = frame->width(0);
 	int h = frame->height(0);
@@ -1354,10 +1373,10 @@ float SE3Tracker::ProjectionResiduals(
 	float cx = KLvl(0,2);
 	float cy = KLvl(1,2);
 
-	float fxInvLevel = keyframe->fxInv(level);
-	float fyInvLevel = keyframe->fyInv(level);
-	float cxInvLevel = keyframe->cxInv(level);
-	float cyInvLevel = keyframe->cyInv(level);
+	float fxInvLevel = reference->keyframe->fxInv(0);
+	float fyInvLevel = reference->keyframe->fyInv(0);
+	float cxInvLevel = reference->keyframe->cxInv(0);
+	float cyInvLevel = reference->keyframe->cyInv(0);
 
 	// 位姿变换旋转矩阵和平移矩阵
 	Eigen::Matrix3f rotMat = referenceToFrame.rotationMatrix();
@@ -1368,34 +1387,55 @@ float SE3Tracker::ProjectionResiduals(
 	const float* pyrColorSource = reference->keyframe->image(0);
 	const Eigen::Vector4f* pyrGradSource = reference->keyframe->gradients(0);
 
+	if(reference->projectposData == nullptr) reference->projectposData = new Eigen::Vector3f[w*h];
+	if(reference->projectgradData == nullptr) reference->projectgradData = new Eigen::Vector2f[w*h];
+	if(reference->projectcolorAndVarData == nullptr) reference->projectcolorAndVarData = new Eigen::Vector2f[w*h];
+
 	Eigen::Vector3f* posDataPT = reference->projectposData;
 	Eigen::Vector2f* gradDataPT = reference->projectgradData;
 	Eigen::Vector2f* colorAndVarDataPT = reference->projectcolorAndVarData;
+
+	const Eigen::Vector4f* frame_gradients = frame->gradients(0);
+
+	// Rotation Histogram (to check rotation consistency)
+    vector<int> rotHist[HISTO_LENGTH];
+	const float factor = 1.0f/HISTO_LENGTH;
 	
 	//==================== 逐参考帧的关键点匹配 ==========================
-	for(KeyPoint keypoint : reference->keyframe->fKeypoints)
+	int id_iterator = 0;
+	for(auto keypoint : reference->keyframe->fKeypoints)
 	{
 		int x = round(keypoint.pt.x);
 		int y = round(keypoint.pt.y);
 		int idx = x + y*w;
 
 		// 为了保障数量足够的特征点能被投影到当前帧,!!!!!!!!!!这里可能不能使用LSD的点云，要通过orb自己建图
+		// if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+		// {
+		// 	if(x<w-1) idx=x+1+y*w;
+		// 	if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+		// 	{
+		// 		if(x>1) idx=x-1+y*w;
+		// 		if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+		// 		{
+		// 			if(y<w-1) idx=x+(y+1)*w;
+		// 			if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
+		// 			{
+		// 				if(y>1) idx=x+(y-1)*w;
+		// 				if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0) continue;
+		// 			}
+		// 		}
+		// 	}
+		// }
+
 		if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
 		{
-			if(x<w-1) idx=x+1+y*w;
-			if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
-			{
-				if(x>1) idx=x-1+y*w;
-				if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
-				{
-					if(y<w-1) idx=x+(y+1)*w;
-					if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
-					{
-						if(y>1) idx=x+(y-1)*w;
-						if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0) continue;
-					}
-				}
-			}
+			//cout<<"参考帧关键点位置没有对应的3D点！！！！！"<<endl;
+			posDataPT++;
+			gradDataPT++;
+			colorAndVarDataPT++;
+			id_iterator++;
+			continue;
 		}
 
 		// 构造3D点
@@ -1413,13 +1453,17 @@ float SE3Tracker::ProjectionResiduals(
 			posDataPT++;
 			gradDataPT++;
 			colorAndVarDataPT++;
+			id_iterator++;
 			continue;
 		}
 
+		Eigen::Vector3f resInterp = getInterpolatedElement43(frame_gradients, u_new, v_new, w);
+
 		int nLastOctave = keypoint.octave;
 
+
 		//====================== 选出当前帧的候选关键点 ==========================
-		float radius = 15*reference->mvScaleFactor[nLastOctave];
+		float radius = 15*reference->keyframe->mvScaleFactor[nLastOctave];
 		vector<size_t> vIndices;//待匹配候选特征点
 		vIndices = frame->GetFeaturesInArea(u_new,v_new, radius, nLastOctave-1, nLastOctave+1);
 
@@ -1428,70 +1472,157 @@ float SE3Tracker::ProjectionResiduals(
 			posDataPT++;
 			gradDataPT++;
 			colorAndVarDataPT++;
-
+			id_iterator++;
 			continue;
 		}
 
 		//====================== 在候选关键点里选出匹配点 ========================
-		const cv::Mat dMP = 
+		const cv::Mat dMP = reference->keyframe->fDescriptors.row(id_iterator);
 
 		int bestDist = 256;
-		int bestIdx2 = -1;
-
-		for(vector<size_t>::const_iterator vit=vIndices2.begin(), vend=vIndices2.end(); vit!=vend; vit++)
+		int bestIdx = -1;
+		
+		for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
 		{
 			const size_t i2 = *vit;
-			if(CurrentFrame.mvpMapPoints[i2])
-				if(CurrentFrame.mvpMapPoints[i2]->Observations()>0)
-					continue;
 
-			if(CurrentFrame.mvuRight[i2]>0)
-			{
-				const float ur = u - CurrentFrame.mbf*invzc;
-				const float er = fabs(ur - CurrentFrame.mvuRight[i2]);
-				if(er>radius)
-					continue;
-			}
-
-			const cv::Mat &d = CurrentFrame.mDescriptors.row(i2);
+			const cv::Mat &d = frame->fDescriptors.row(i2);
 
 			const int dist = DescriptorDistance(dMP,d);
 
 			if(dist<bestDist)
 			{
 				bestDist=dist;
-				bestIdx2=i2;
+				bestIdx=i2;
 			}
 		}
 
-		if(bestDist<=TH_HIGH)
+		if(bestDist<=100)
 		{
-			CurrentFrame.mvpMapPoints[bestIdx2]=pMP;
-			nmatches++;
+			reference->keyframe->nmatches++;
 
 			if(mbCheckOrientation)
 			{
-				float rot = LastFrame.mvKeysUn[i].angle-CurrentFrame.mvKeysUn[bestIdx2].angle;
+				float rot = keypoint.angle-frame->fKeypoints[bestIdx].angle;
 				if(rot<0.0)
 					rot+=360.0f;
 				int bin = round(rot*factor);
 				if(bin==HISTO_LENGTH)
 					bin=0;
 				assert(bin>=0 && bin<HISTO_LENGTH);
-				rotHist[bin].push_back(bestIdx2);
+				rotHist[bin].push_back(bestIdx);
 			}
 		}
 
+		// 重投影误差
+		*(project_buf_warped_residual_x+id_iterator) = u_new - frame->fKeypoints[bestIdx].pt.x;
+		*(project_buf_warped_residual_y+id_iterator) = v_new - frame->fKeypoints[bestIdx].pt.y;
+
+		*(project_buf_warped_x+id_iterator) = Wxp(0);
+		*(project_buf_warped_y+id_iterator) = Wxp(1);
+		*(project_buf_warped_z+id_iterator) = Wxp(2);
+
+		*(buf_warped_dx+id_iterator) = fx * resInterp[0];
+		*(buf_warped_dy+id_iterator) = fy * resInterp[1];
+
+		*(project_buf_d+id_iterator) = 1.0f / (*posDataPT)[2];
+		*(project_buf_idepthVar+id_iterator) = (*colorAndVarDataPT)[1];
 
 		posDataPT++;
 		gradDataPT++;
 		colorAndVarDataPT++;
-
+		id_iterator++;
 
 	}
-		return 0;
+
+	cout<<"成功匹配的比率："<<(float)reference->keyframe->nmatches/(float)reference->keyframe->fKeypoints.size()<<endl;
+
+	reference->keyframe->nmatches=0;
+	//Apply rotation consistency
+	if(mbCheckOrientation)
+	{
+		int ind1=-1;
+		int ind2=-1;
+		int ind3=-1;
+
+		ComputeThreeMaxima(rotHist,HISTO_LENGTH,ind1,ind2,ind3);
+
+		for(int i=0; i<HISTO_LENGTH; i++)
+		{
+			if(i!=ind1 && i!=ind2 && i!=ind3)
+			{
+				for(size_t j=0, jend=rotHist[i].size(); j<jend; j++)
+				{
+					reference->keyframe->nmatches--;
+				}
+			}
+		}
+	}
+
+
+	return 0;
 }
 
+int SE3Tracker::DescriptorDistance(const cv::Mat &a, const cv::Mat &b)
+{
+    const int *pa = a.ptr<int32_t>();
+    const int *pb = b.ptr<int32_t>();
+
+    int dist=0;
+
+    for(int i=0; i<8; i++, pa++, pb++)
+    {
+        unsigned  int v = *pa ^ *pb;
+        v = v - ((v >> 1) & 0x55555555);
+        v = (v & 0x33333333) + ((v >> 2) & 0x33333333);
+        dist += (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24;
+    }
+
+    return dist;
+}
+
+void SE3Tracker::ComputeThreeMaxima(vector<int>* histo, const int L, int &ind1, int &ind2, int &ind3)
+{
+    int max1=0;
+    int max2=0;
+    int max3=0;
+
+    for(int i=0; i<L; i++)
+    {
+        const int s = histo[i].size();
+        if(s>max1)
+        {
+            max3=max2;
+            max2=max1;
+            max1=s;
+            ind3=ind2;
+            ind2=ind1;
+            ind1=i;
+        }
+        else if(s>max2)
+        {
+            max3=max2;
+            max2=s;
+            ind3=ind2;
+            ind2=i;
+        }
+        else if(s>max3)
+        {
+            max3=s;
+            ind3=i;
+        }
+    }
+
+    if(max2<0.1f*(float)max1)
+    {
+        ind2=-1;
+        ind3=-1;
+    }
+    else if(max3<0.1f*(float)max1)
+    {
+        ind3=-1;
+    }
+}
 
 
 }

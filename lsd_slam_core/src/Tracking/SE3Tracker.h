@@ -25,6 +25,7 @@
 #include "util/SophusUtil.h"
 #include "Tracking/least_squares.h"
 
+using namespace std;
 
 namespace lsd_slam
 {
@@ -78,6 +79,16 @@ public:
 			Frame* reference,
 			SE3 referenceToFrame);
 
+	int DescriptorDistance(
+			const cv::Mat &a, 
+			const cv::Mat &b);
+
+	void ComputeThreeMaxima(
+			vector<int>* histo, 
+			const int L, 
+			int &ind1, 
+			int &ind2, 
+			int &ind3);
 
 	float pointUsage;
 	float lastGoodCount;
@@ -107,7 +118,8 @@ private:
 	float* buf_weight_p;
 
 	//#
-	float* project_buf_warped_residual;
+	float* project_buf_warped_residual_x;
+	float* project_buf_warped_residual_y;
 	float* project_buf_warped_dx;
 	float* project_buf_warped_dy;
 	float* project_buf_warped_x;

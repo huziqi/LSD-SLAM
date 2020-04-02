@@ -68,6 +68,7 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
         mvScaleFactor[i]=mvScaleFactor[i-1]*kpFactor;
     }
 	
+	nmatches = 0;
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);
 }
@@ -94,6 +95,8 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
     {
         mvScaleFactor[i]=mvScaleFactor[i-1]*kpFactor;
     }
+
+	nmatches = 0;
 
 	if(enablePrintDebugInfo && printMemoryDebugInfo)
 		printf("ALLOCATED frame %d, now there are %d\n", this->id(), privateFrameAllocCount);
