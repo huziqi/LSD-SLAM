@@ -1403,6 +1403,9 @@ float SE3Tracker::ProjectionResiduals(
 	
 	//==================== 逐参考帧的关键点匹配 ==========================
 	int id_iterator = 0;
+	vector<int> vMatchedDistance(frame->fKeypoints.size(),256);
+	vector<int> vnMatches21(frame->fKeypoints.size(),-1);
+	vector<int> vnMatches12(reference->keyframe->fKeypoints.size(),-1);
 	for(auto keypoint : reference->keyframe->fKeypoints)
 	{
 		int x = round(keypoint.pt.x);
@@ -1480,8 +1483,10 @@ float SE3Tracker::ProjectionResiduals(
 		const cv::Mat dMP = reference->keyframe->fDescriptors.row(id_iterator);
 
 		int bestDist = 256;
+		int bestDist2 = 256;
 		int bestIdx = -1;
-		
+
+
 		for(vector<size_t>::const_iterator vit=vIndices.begin(), vend=vIndices.end(); vit!=vend; vit++)
 		{
 			const size_t i2 = *vit;
@@ -1490,27 +1495,46 @@ float SE3Tracker::ProjectionResiduals(
 
 			const int dist = DescriptorDistance(dMP,d);
 
-			if(dist<bestDist)
-			{
-				bestDist=dist;
-				bestIdx=i2;
-			}
+			if(vMatchedDistance[i2]<=dist)
+                continue;
+
+            if(dist<bestDist)
+            {
+                bestDist2=bestDist;
+                bestDist=dist;
+                bestIdx=i2;
+            }
+            else if(dist<bestDist2)
+            {
+                bestDist2=dist;
+            }
 		}
 
 		if(bestDist<=100)
 		{
-			reference->keyframe->nmatches++;
-
-			if(mbCheckOrientation)
+			if(bestDist<(float)bestDist2*0.7)//最好的匹配距离应该比次好的匹配距离的70%更小
 			{
-				float rot = keypoint.angle-frame->fKeypoints[bestIdx].angle;
-				if(rot<0.0)
-					rot+=360.0f;
-				int bin = round(rot*factor);
-				if(bin==HISTO_LENGTH)
-					bin=0;
-				assert(bin>=0 && bin<HISTO_LENGTH);
-				rotHist[bin].push_back(bestIdx);
+				if(vnMatches21[bestIdx]>=0)
+                {
+                    vnMatches12[vnMatches21[bestIdx]]=-1;
+                    reference->keyframe->nmatches--;
+                }
+                vnMatches12[id_iterator]=bestIdx;
+                vnMatches21[bestIdx]=id_iterator;
+                vMatchedDistance[bestIdx]=bestDist;
+                reference->keyframe->nmatches++;
+
+				if(mbCheckOrientation)
+				{
+					float rot = keypoint.angle-frame->fKeypoints[bestIdx].angle;
+					if(rot<0.0)
+						rot+=360.0f;
+					int bin = round(rot*factor);
+					if(bin==HISTO_LENGTH)
+						bin=0;
+					assert(bin>=0 && bin<HISTO_LENGTH);
+					rotHist[bin].push_back(bestIdx);
+				}
 			}
 		}
 
