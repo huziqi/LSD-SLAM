@@ -39,6 +39,7 @@ typedef Eigen::Matrix<float, 4, 1> Vector4;
 typedef Eigen::Matrix<float, 4, 4> Matrix4x4;
 
 
+
 /**
  * A 6x6 self adjoint matrix with optimized "rankUpdate(u, scale)" (10x faster than Eigen impl, 1.8x faster than MathSse::addOuterProduct(...)).
  */
@@ -76,17 +77,24 @@ public:
   Matrix6x6 A;
   Vector6 b;
 
+  Matrix6x6 pro_A;
+  Vector6 pro_b;
+
   bool solved;
+  bool unionopt;
   float error;
-  size_t maxnum_constraints, num_constraints;
+  float project_error;
+  size_t maxnum_constraints, num_constraints, project_num_constraints;
 
   virtual ~NormalEquationsLeastSquares();
 
   virtual void initialize(const size_t maxnum_constraints);
   virtual void update(const Vector6& J, const float& res, const float& weight = 1.0f);
+  virtual void update(const Eigen::Matrix<float, 6, 2> &J, const Eigen::Vector2f &res, const float &weight = 1.0f);
   virtual void finish();
   virtual void finishNoDivide();
   virtual void solve(Vector6& x);
+  virtual void solve_union(Vector6 &x);
 
   void combine(const NormalEquationsLeastSquares& other);
 };

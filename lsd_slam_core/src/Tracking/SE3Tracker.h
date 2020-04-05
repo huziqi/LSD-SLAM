@@ -130,8 +130,13 @@ private:
 	float* project_buf_idepthVar;
 	float* project_buf_weight_p;
 
+	float buf_fx;
+	float buf_fy;
+
 	int buf_warped_size;
 	int project_buf_warped_size;
+
+	float minidepthVar;
 
 
 
@@ -185,7 +190,7 @@ private:
 #endif
 
 
-
+	float calcProjectWeights();
 
 
 
@@ -203,8 +208,8 @@ private:
 	void calcResidualAndBuffers_debugStart();
 	void calcResidualAndBuffers_debugFinish(int w);
 
-
-
+	Vector6 calculateUnionWarpUpdate(
+		NormalEquationsLeastSquares &ls);
 
 	float ProjectionResiduals(
 		TrackingReference* reference,

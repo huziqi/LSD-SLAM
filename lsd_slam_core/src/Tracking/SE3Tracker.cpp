@@ -93,6 +93,12 @@ SE3Tracker::SE3Tracker(int w, int h, Eigen::Matrix3f K)
 	project_buf_weight_p = (float*)Eigen::internal::aligned_malloc(w*h*sizeof(float));
 
 	buf_warped_size = 0;
+	project_buf_warped_size = 0;
+
+	buf_fx = 0;
+	buf_fy = 0;
+
+	minidepthVar = 0.1; //初始化最小逆深度方差
 
 	debugImageWeights = cv::Mat(height,width,CV_8UC3);
 	debugImageResiduals = cv::Mat(height,width,CV_8UC3);
@@ -347,8 +353,8 @@ SE3 SE3Tracker::trackFrame(
 
 	float last_residual = 0;
 
-
-	for(int lvl=SE3TRACKING_MAX_LEVEL-1;lvl >= SE3TRACKING_MIN_LEVEL;lvl--)
+	//==============直接法逐层优化=============
+	for(int lvl=SE3TRACKING_MAX_LEVEL-1;lvl >= SE3TRACKING_MIN_LEVEL;lvl--)//从第五层优化到第二层
 	{
 		numCalcResidualCalls[lvl] = 0;
 		numCalcWarpUpdateCalls[lvl] = 0;
@@ -481,6 +487,105 @@ SE3 SE3Tracker::trackFrame(
 					else
 						LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
 				}
+			}
+		}
+	}
+
+	//================联合优化================
+	callOptimized(calcResidualAndBuffers, (reference->posData[0], reference->colorAndVarData[0], reference->pointPosInXYGrid[0], reference->numData[0], frame, referenceToFrame, 0, plotTracking));
+	float lastUnionErr = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (referenceToFrame));//初始化联合优化误差
+
+	float LM_lambda = settings.lambdaInitial[0];
+
+	for(int iteration=0; iteration < settings.maxItsPerLvl[0]; iteration++)//迭代5次
+	{
+
+		calculateUnionWarpUpdate(ls);////计算雅可比以及最小二乘系数
+
+		int incTry=0;
+		while(true)
+		{
+			// solve LS system with current lambda, 求解LM
+			Vector6 b = -ls.b - ls.pro_b;
+			Matrix6x6 A = ls.A + ls.pro_A;
+			for(int i=0;i<6;i++) A(i,i) *= 1+LM_lambda;
+			Vector6 inc = A.ldlt().solve(b);
+			incTry++;
+
+			// apply increment. pretty sure this way round is correct, but hard to test.
+			Sophus::SE3f new_referenceToFrame = Sophus::SE3f::exp((inc)) * referenceToFrame;
+			//Sophus::SE3f new_referenceToFrame = referenceToFrame * Sophus::SE3f::exp((inc));
+
+
+			// re-evaluate residual
+			callOptimized(calcResidualAndBuffers, (reference->posData[0], reference->colorAndVarData[0], reference->pointPosInXYGrid[0], reference->numData[0], frame, referenceToFrame, 0, plotTracking));
+			if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * width * height)
+			{
+				cout << "联合优化发散了！！！！！！！！！！" << endl;
+				diverged = true;
+				trackingWasGood = false;
+				return SE3();
+			}
+
+			float error = calcProjectWeights() + callOptimized(calcWeightsAndResidual,(new_referenceToFrame));
+
+
+			// accept inc?
+			if(error < lastUnionErr)
+			{
+				// accept inc
+				referenceToFrame = new_referenceToFrame;
+				if(useAffineLightningEstimation)
+				{
+					affineEstimation_a = affineEstimation_a_lastIt;
+					affineEstimation_b = affineEstimation_b_lastIt;
+				}
+
+				// converged?
+				if(error / lastUnionErr > settings.convergenceEps[0])
+				{
+					if (enablePrintDebugInfo && printTrackingIterationInfo)
+					{
+						printf("(%d-%d): FINISHED pyramid level (last residual reduction too small).\n",
+								0,iteration);
+					}
+					iteration = settings.maxItsPerLvl[0];
+				}
+
+				// last_residual = lastUnionErr = error;
+				lastUnionErr = error;
+
+
+				if(LM_lambda <= 0.2)
+					LM_lambda = 0;
+				else
+					LM_lambda *= settings.lambdaSuccessFac;
+
+				break;
+			}
+			else
+			{
+				if(enablePrintDebugInfo && printTrackingIterationInfo)
+				{
+					printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
+							0,iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
+				}
+
+				if(!(inc.dot(inc) > settings.stepSizeMin[0]))
+				{
+					if(enablePrintDebugInfo && printTrackingIterationInfo)
+					{
+						printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
+								0,iteration);
+					}
+					iteration = settings.maxItsPerLvl[0];
+					break;
+				}
+
+				if(LM_lambda == 0)
+					LM_lambda = 0.2;
+				else
+					LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
 			}
 		}
 	}
@@ -825,6 +930,34 @@ float SE3Tracker::calcWeightsAndResidual(
 	return sumRes / buf_warped_size;
 }
 
+float SE3Tracker::calcProjectWeights()//计算重投影误差归一化参数
+{
+	float sumRes = 0;
+
+	for(int i=0;i<project_buf_warped_size;i++)
+	{
+		float rp_x = *(project_buf_warped_residual_x+i); // r_p
+		float rp_y = *(project_buf_warped_residual_y+i); // r_p
+		float s = settings.var_weight * *(buf_idepthVar+i);	// \sigma_d^2
+
+		float rp = sqrtf(rp_x * rp_x + rp_y * rp_y);
+		
+		// calc w_p
+		float w_p = s / (1.0f/(minidepthVar+0.0001));//权重中的深度不确定部分
+
+		float weighted_rp = fabs(rp*sqrtf(w_p));
+
+		float wh = fabs(weighted_rp < (settings.huber_d/2) ? 1 : (settings.huber_d/2) / weighted_rp);
+
+		sumRes += wh * w_p * rp*rp;
+
+
+		*(project_buf_weight_p+i) = wh * w_p;
+	}
+
+	return sumRes / project_buf_warped_size;
+}
+
 
 void SE3Tracker::calcResidualAndBuffers_debugStart()
 {
@@ -941,6 +1074,9 @@ float SE3Tracker::calcResidualAndBuffers(
 	float fy_l = KLvl(1,1);
 	float cx_l = KLvl(0,2);
 	float cy_l = KLvl(1,2);
+
+	buf_fx = fx_l;
+	buf_fy = fy_l;
 
 	Eigen::Matrix3f rotMat = referenceToFrame.rotationMatrix();
 	Eigen::Vector3f transVec = referenceToFrame.translation();
@@ -1355,6 +1491,90 @@ Vector6 SE3Tracker::calculateWarpUpdate(
 }
 
 
+Vector6 SE3Tracker::calculateUnionWarpUpdate(
+		NormalEquationsLeastSquares &ls)
+{
+//	weightEstimator.reset();
+//	weightEstimator.estimateDistribution(buf_warped_residual, buf_warped_size);
+//	weightEstimator.calcWeights(buf_warped_residual, buf_warped_weights, buf_warped_size);
+//
+
+	ls.initialize(width*height);
+	ls.unionopt = true;
+	//===========计算灰度误差雅各比矩阵============
+	for(int i=0;i<buf_warped_size;i++)
+	{
+		float px = *(buf_warped_x+i);
+		float py = *(buf_warped_y+i);
+		float pz = *(buf_warped_z+i);
+		float r =  *(buf_warped_residual+i);
+		float gx = *(buf_warped_dx+i);
+		float gy = *(buf_warped_dy+i);
+		// step 3 + step 5 comp 6d error vector
+
+		float z = 1.0f / pz;
+		float z_sqr = 1.0f / (pz*pz);
+		Vector6 v;
+		v[0] = z*gx + 0;
+		v[1] = 0 +         z*gy;
+		v[2] = (-px * z_sqr) * gx +
+			  (-py * z_sqr) * gy;
+		v[3] = (-px * py * z_sqr) * gx +
+			  (-(1.0 + py * py * z_sqr)) * gy;
+		v[4] = (1.0 + px * px * z_sqr) * gx +
+			  (px * py * z_sqr) * gy;
+		v[5] = (-py * z) * gx +
+			  (px * z) * gy;
+
+		// step 6: integrate into A and b:
+		ls.update(v, r, *(buf_weight_p+i));
+	}
+	
+
+	//===========计算几何误差雅各比矩阵============
+	for(int i=0;i<buf_warped_size;i++)
+	{
+		float px = *(project_buf_warped_x+i);
+		float py = *(project_buf_warped_y+i);
+		float pz = *(project_buf_warped_z+i);
+		float rx = *(project_buf_warped_residual_x+i);
+		float ry = *(project_buf_warped_residual_y+i);
+		float z = 1.0f / pz;
+		float z_sqr = 1.0f / (pz*pz);
+
+		Eigen::Matrix<float , 6 ,2> v;
+		Eigen::Vector2f res;
+
+		v(0,0) = buf_fx * z;
+		v(1,0) = 0;
+		v(2,0) = -buf_fx * px * z_sqr;
+		v(3,0) = -buf_fx * px * py * z_sqr;
+		v(4,0) = buf_fx + buf_fx * px * px * z_sqr;
+		v(5,0) = -buf_fx * py * z;
+
+		v(0,1) = 0;
+		v(1,1) = buf_fy * z;
+		v(2,1) = -buf_fy * py * z_sqr;
+		v(3,1) = -buf_fy - buf_fy * py * py * z_sqr;
+		v(4,1) = buf_fy * px * py * z_sqr;
+		v(5,1) = buf_fy * px * z;
+
+		res[0] = rx;
+		res[1] = ry;
+
+		// step 6: integrate into A and b:
+		ls.update(v, res, *(project_buf_weight_p+i));
+	}
+	Vector6 result;
+
+	// solve ls
+	ls.finish();
+	ls.solve_union(result);
+
+	return result;
+}
+
+
 //# 
 float SE3Tracker::ProjectionResiduals(
 		TrackingReference* reference,
@@ -1536,21 +1756,24 @@ float SE3Tracker::ProjectionResiduals(
 					rotHist[bin].push_back(bestIdx);
 				}
 			}
+		
+			// 重投影误差
+			*(project_buf_warped_residual_x+id_iterator) = u_new - frame->fKeypoints[bestIdx].pt.x;
+			*(project_buf_warped_residual_y+id_iterator) = v_new - frame->fKeypoints[bestIdx].pt.y;
+
+			*(project_buf_warped_x+id_iterator) = Wxp(0);
+			*(project_buf_warped_y+id_iterator) = Wxp(1);
+			*(project_buf_warped_z+id_iterator) = Wxp(2);
+
+			*(buf_warped_dx+id_iterator) = fx * resInterp[0];
+			*(buf_warped_dy+id_iterator) = fy * resInterp[1];
+
+			*(project_buf_d+id_iterator) = 1.0f / (*posDataPT)[2];
+			*(project_buf_idepthVar+id_iterator) = (*colorAndVarDataPT)[1];
+			project_buf_warped_size++;
+
+			if(*(project_buf_idepthVar+id_iterator)<minidepthVar) minidepthVar = *(project_buf_idepthVar+id_iterator);//找到最小逆深度方差
 		}
-
-		// 重投影误差
-		*(project_buf_warped_residual_x+id_iterator) = u_new - frame->fKeypoints[bestIdx].pt.x;
-		*(project_buf_warped_residual_y+id_iterator) = v_new - frame->fKeypoints[bestIdx].pt.y;
-
-		*(project_buf_warped_x+id_iterator) = Wxp(0);
-		*(project_buf_warped_y+id_iterator) = Wxp(1);
-		*(project_buf_warped_z+id_iterator) = Wxp(2);
-
-		*(buf_warped_dx+id_iterator) = fx * resInterp[0];
-		*(buf_warped_dy+id_iterator) = fy * resInterp[1];
-
-		*(project_buf_d+id_iterator) = 1.0f / (*posDataPT)[2];
-		*(project_buf_idepthVar+id_iterator) = (*colorAndVarDataPT)[1];
 
 		posDataPT++;
 		gradDataPT++;

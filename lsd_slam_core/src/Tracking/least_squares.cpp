@@ -35,10 +35,15 @@ void NormalEquationsLeastSquares::initialize(const size_t maxnum_constraints)
   A.setZero();
   A_opt.setZero();
   b.setZero();
+  pro_A.setZero();
+  pro_b.setZero();
   solved = false;
   error = 0;
+  project_error = 0;
+  unionopt = false;
   this->num_constraints = 0;
   this->maxnum_constraints = maxnum_constraints;
+  this->project_num_constraints = 0;
 }
 
 inline void NormalEquationsLeastSquares::update(const Vector6& J, const float& res, const float& weight)
@@ -56,6 +61,22 @@ inline void NormalEquationsLeastSquares::update(const Vector6& J, const float& r
   num_constraints += 1;
 }
 
+inline void NormalEquationsLeastSquares::update(const Eigen::Matrix<float,6,2>& J, const Eigen::Vector2f& res, const float& weight)
+{
+//	printf("up: %f, %f, %f, %f, %f, %f; res: %f; w: %f\n",
+//			J[0],J[1],J[2],J[3],J[4],J[5],res, weight);
+
+  //A_opt.rankUpdate(J, weight);
+  //MathSse<Sse::Enabled, float>::addOuterProduct(A, J, factor);
+  pro_A = pro_A + J * J.transpose() * weight;
+  //MathSse<Sse::Enabled, float>::add(b, J, -res * factor); // not much difference :(
+  pro_b -= J * (res * weight);
+
+  float error_temp = (res[0] * res[0] + res[1] * res[1]) * weight;
+  project_error = project_error + error_temp;
+  project_num_constraints += 1;
+}
+
 void NormalEquationsLeastSquares::combine(const NormalEquationsLeastSquares& other)
 {
   A_opt += other.A_opt;
@@ -70,6 +91,15 @@ void NormalEquationsLeastSquares::finish()
   A /= (float) num_constraints;
   b /= (float) num_constraints;
   error /= (float) num_constraints;
+
+  //#
+  if(unionopt&&project_num_constraints!=0)
+  {
+	pro_A /= (float) project_num_constraints;
+	pro_b /= (float) project_num_constraints;
+	project_error /= (float) project_num_constraints;
+  }
+  
 }
 void NormalEquationsLeastSquares::finishNoDivide()
 {
@@ -79,6 +109,14 @@ void NormalEquationsLeastSquares::finishNoDivide()
 void NormalEquationsLeastSquares::solve(Vector6& x)
 {
   x = A.ldlt().solve(b);
+  solved = true;
+}
+
+void NormalEquationsLeastSquares::solve_union(Vector6& x)
+{
+  Matrix6x6 A_union = A + pro_A;
+  Vector6 b_union = b + pro_b;
+  x = A_union.ldlt().solve(b_union);
   solved = true;
 }
 

@@ -61,7 +61,7 @@ Frame::Frame(int id, int width, int height, const Eigen::Matrix3f& K, double tim
 	kpLevel=KEYPOINT_LEVEL;
 	kpFactor=KEYPOINT_FACTOR;
 
-	mvScaleFactor.resize(kpLevel);
+	mvScaleFactor.resize(kpLevel);//用于特征点匹配
     mvScaleFactor[0]=1.0f;
     for(int i=1; i<kpLevel; i++)
     {
