@@ -558,8 +558,8 @@ SE3 SE3Tracker::trackFrame(
 
 				float error = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (new_referenceToFrame));
 
-				// cout << "重投影误差：" << calcProjectWeights() << endl;
-				// cout << "灰度误差：" << calcWeightsAndResidual(new_referenceToFrame) << endl;
+				cout << "重投影误差：" << calcProjectWeights() << endl;
+				cout << "灰度误差：" << calcWeightsAndResidual(new_referenceToFrame) << endl;
 
 				// accept inc?
 				if (error < lastUnionErr)
@@ -606,7 +606,7 @@ SE3 SE3Tracker::trackFrame(
 				}
 				else
 				{
-					if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
+					if (false) //(enablePrintDebugInfo && printTrackingIterationInfo)
 					{
 						printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
 							   0, iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
@@ -614,7 +614,7 @@ SE3 SE3Tracker::trackFrame(
 
 					if (!(inc.dot(inc) > settings.stepSizeMin[0]))
 					{
-						if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
+						if (false) //(enablePrintDebugInfo && printTrackingIterationInfo)
 						{
 							printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
 								   0, iteration);
@@ -980,16 +980,18 @@ float SE3Tracker::calcProjectWeights()//计算重投影误差归一化参数
 	{
 		float rp_x = *(project_buf_warped_residual_x+i); // r_p
 		float rp_y = *(project_buf_warped_residual_y+i); // r_p
-		float s = settings.var_weight * *(buf_idepthVar+i);	// \sigma_d^2
+		float s = settings.var_weight * *(project_buf_idepthVar+i);	// \sigma_d^2, var_weight=1.0
 
 		float rp = sqrtf(rp_x * rp_x + rp_y * rp_y);
 		
 		// calc w_p
-		float w_p = s / (1.0f/(minidepthVar+0.0001));//权重中的深度不确定部分
+		float w_p = (1.0f / (s + 0.0001)) / (1.0f/(minidepthVar+0.0001));//权重中的深度不确定部分
 
 		float weighted_rp = fabs(rp*sqrtf(w_p));
 
-		float wh = fabs(weighted_rp < (settings.huber_d/2) ? 1 : (settings.huber_d/2) / weighted_rp);
+		//cout << weighted_rp << " ";
+
+		float wh = fabs(weighted_rp < (settings.huber_d/2) ? 1 : (settings.huber_d/2) / weighted_rp);//huber_d=3
 
 		sumRes += wh * w_p * rp*rp;
 
@@ -1820,7 +1822,7 @@ float SE3Tracker::ProjectionResiduals(
 			*(project_buf_idepthVar+idxpt) = (*colorAndVarDataPT)[1];
 			idxpt++;
 
-			if(*(project_buf_idepthVar+id_iterator)<minidepthVar) minidepthVar = *(project_buf_idepthVar+id_iterator);//找到最小逆深度方差
+			if(*(project_buf_idepthVar+idxpt)<minidepthVar) minidepthVar = *(project_buf_idepthVar+idxpt);//找到最小逆深度方差
 		}
 
 		posDataPT++;
