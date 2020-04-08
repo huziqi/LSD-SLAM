@@ -32,14 +32,22 @@
 #include "lsd_slam_viewer/keyframeGraphMsg.h"
 #include "lsd_slam_viewer/keyframeMsg.h"
 
+#include <geometry_msgs/PoseStamped.h>
 
 #include "boost/foreach.hpp"
 #include "rosbag/bag.h"
 #include "rosbag/query.h"
 #include "rosbag/view.h"
 
+#include <fstream>
+
 
 PointCloudViewer* viewer = 0;
+
+//#
+
+std::string Outfilename = "/home/hzq/estimated_poses.txt";
+std::ofstream* outfile = new std::ofstream(Outfilename.c_str(),std::ios::app);
 
 
 void dynConfCb(lsd_slam_viewer::LSDSLAMViewerParamsConfig &config, uint32_t level)
@@ -80,7 +88,24 @@ void graphCb(lsd_slam_viewer::keyframeGraphMsgConstPtr msg)
 		viewer->addGraphMsg(msg);
 }
 
+void poseCb(const geometry_msgs::PoseStamped::ConstPtr& data)
+{
+	char buffer[1000];
+	int num = snprintf(buffer, 1000, "%f %f %f %f %f %f %f %f\n",
+			data->header.stamp.toSec(),
+			data->pose.position.x,
+			data->pose.position.y,
+			data->pose.position.z,
+			data->pose.orientation.x,
+			data->pose.orientation.y,
+			data->pose.orientation.z,
+			data->pose.orientation.w);
 
+	outfile->open(Outfilename, std::ios::app);
+	outfile->write(buffer, num);
+	outfile->flush();
+	outfile->close();
+}
 
 void rosThreadLoop( int argc, char** argv )
 {
@@ -100,6 +125,7 @@ void rosThreadLoop( int argc, char** argv )
 	ros::Subscriber liveFrames_sub = nh.subscribe(nh.resolveName("lsd_slam/liveframes"),1, frameCb);
 	ros::Subscriber keyFrames_sub = nh.subscribe(nh.resolveName("lsd_slam/keyframes"),20, frameCb);
 	ros::Subscriber graph_sub       = nh.subscribe(nh.resolveName("lsd_slam/graph"),10, graphCb);
+	ros::Subscriber pose_sub = nh.subscribe(nh.resolveName("lsd_slam/pose"), 1, poseCb);
 
 	ros::spin();
 
@@ -172,6 +198,8 @@ int main( int argc, char** argv )
 	viewer->show();
 
 	boost::thread rosThread;
+
+	
 
 	if(argc > 1)
 	{

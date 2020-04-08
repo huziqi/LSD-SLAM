@@ -365,7 +365,7 @@ public:
 		lambdaFailFac = 2.0f;
 
 		const float stepSizeMinc[6] = {1e-8, 1e-8, 1e-8, 1e-8, 1e-8, 1e-8};
-		const int maxIterations[6] = {5, 20, 50, 100, 100, 100};
+		const int maxIterations[6] = {10, 20, 50, 100, 100, 100};
 
 
 		for (int level = 0; level < PYRAMID_LEVELS; ++ level)

@@ -525,7 +525,7 @@ SE3 SE3Tracker::trackFrame(
 
 		float LM_lambda = settings.lambdaInitial[0];
 
-		for (int iteration = 0; iteration < settings.maxItsPerLvl[0]; iteration++) //迭代5次
+		for (int iteration = 0; iteration < settings.maxItsPerLvl[0]; iteration++) //迭代10次
 		{
 
 			calculateUnionWarpUpdate(ls); ////计算雅可比以及最小二乘系数
@@ -558,8 +558,8 @@ SE3 SE3Tracker::trackFrame(
 
 				float error = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (new_referenceToFrame));
 
-				cout << "重投影误差：" << calcProjectWeights() << endl;
-				cout << "灰度误差：" << calcWeightsAndResidual(new_referenceToFrame) << endl;
+				//cout << "重投影误差：" << calcProjectWeights() << endl;
+				//cout << "灰度误差：" << calcWeightsAndResidual(new_referenceToFrame) << endl;
 
 				// accept inc?
 				if (error < lastUnionErr)
@@ -606,7 +606,7 @@ SE3 SE3Tracker::trackFrame(
 				}
 				else
 				{
-					if (false) //(enablePrintDebugInfo && printTrackingIterationInfo)
+					if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
 					{
 						printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
 							   0, iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
@@ -614,7 +614,7 @@ SE3 SE3Tracker::trackFrame(
 
 					if (!(inc.dot(inc) > settings.stepSizeMin[0]))
 					{
-						if (false) //(enablePrintDebugInfo && printTrackingIterationInfo)
+						if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
 						{
 							printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
 								   0, iteration);
