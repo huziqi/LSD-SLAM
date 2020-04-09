@@ -138,7 +138,7 @@ private:
 
 	float minidepthVar;
 
-
+	int nmatches[PYRAMID_LEVELS];
 
 	float calcResidualAndBuffers(
 			const Eigen::Vector3f* refPoint,
@@ -214,7 +214,14 @@ private:
 	float ProjectionResiduals(
 		TrackingReference* reference,
 		Frame* frame,
-		const Sophus::SE3f& referenceToFrame);
+		const Sophus::SE3f& referenceToFrame,
+		int level);
+
+	// float ProjectionResiduals(
+	// 	TrackingReference* reference,
+	// 	Frame* frame,
+	// 	const Sophus::SE3f& referenceToFrame,
+	// 	int lvl);
 
 
 	// used for image saving

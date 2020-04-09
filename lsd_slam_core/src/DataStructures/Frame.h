@@ -128,7 +128,7 @@ public:
 
 	std::vector<cv::KeyPoint> fKeypoints;
     cv::Mat fDescriptors;
-	ORB* orb=new ORB(1000,1.2f,8,31,0,2,0,31);
+	ORB* orb=new ORB(1000,1.2f,5,31,0,2,0,31);
 	int keypointSize;
 	std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
 	boost::shared_mutex ORBMutex;

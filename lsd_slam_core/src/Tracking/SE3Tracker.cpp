@@ -29,6 +29,8 @@
 
 #include <Eigen/Core>
 
+#include <cmath>
+
 using namespace cv;
 using namespace std;
 
@@ -98,7 +100,12 @@ SE3Tracker::SE3Tracker(int w, int h, Eigen::Matrix3f K)
 	buf_fx = 0;
 	buf_fy = 0;
 
-	minidepthVar = 0.1; //初始化最小逆深度方差
+	minidepthVar = 10; //初始化最小逆深度方差
+	for(int level=0;level<PYRAMID_LEVELS;level++)
+	{
+		//初始化特征点匹配个数
+		nmatches[level] = 0;
+	}
 
 	debugImageWeights = cv::Mat(height,width,CV_8UC3);
 	debugImageResiduals = cv::Mat(height,width,CV_8UC3);
@@ -351,288 +358,451 @@ SE3 SE3Tracker::trackFrame(
 
 	float last_residual = 0;
 
-	//==============直接法逐层优化=============
-	for(int lvl=SE3TRACKING_MAX_LEVEL-1;lvl >= SE3TRACKING_MIN_LEVEL;lvl--)//从第五层优化到第二层
-	{
-		numCalcResidualCalls[lvl] = 0;
-		numCalcWarpUpdateCalls[lvl] = 0;
-
-		reference->makePointCloud(lvl);
-
-		//计算残差
-		callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
-		if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * (width>>lvl)*(height>>lvl))
-		{
-			diverged = true;
-			trackingWasGood = false;
-			return SE3();
-		}
-
-		if(useAffineLightningEstimation)//光照仿射变换
-		{
-			affineEstimation_a = affineEstimation_a_lastIt;
-			affineEstimation_b = affineEstimation_b_lastIt;
-		}
-		float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame));////计算归一化方差的光度误差系数，返回值是归一化光度误差均值
-
-		numCalcResidualCalls[lvl]++;
-
-
-		float LM_lambda = settings.lambdaInitial[lvl];
-
-		for(int iteration=0; iteration < settings.maxItsPerLvl[lvl]; iteration++)
-		{
-
-			callOptimized(calculateWarpUpdate,(ls));////计算雅可比以及最小二乘系数
-
-			numCalcWarpUpdateCalls[lvl]++;
-
-			iterationNumber = iteration;
-
-			int incTry=0;
-			while(true)
-			{
-				// solve LS system with current lambda
-				Vector6 b = -ls.b;
-				Matrix6x6 A = ls.A;
-				for(int i=0;i<6;i++) A(i,i) *= 1+LM_lambda;
-				Vector6 inc = A.ldlt().solve(b);
-				incTry++;
-
-				// apply increment. pretty sure this way round is correct, but hard to test.
-				Sophus::SE3f new_referenceToFrame = Sophus::SE3f::exp((inc)) * referenceToFrame;
-				//Sophus::SE3f new_referenceToFrame = referenceToFrame * Sophus::SE3f::exp((inc));
-
-
-				// re-evaluate residual
-				callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, new_referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
-				if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN* (width>>lvl)*(height>>lvl))
-				{
-					diverged = true;
-					trackingWasGood = false;
-					return SE3();
-				}
-
-				float error = callOptimized(calcWeightsAndResidual,(new_referenceToFrame));
-				numCalcResidualCalls[lvl]++;
-
-
-				// accept inc?
-				if(error < lastErr)
-				{
-					// accept inc
-					referenceToFrame = new_referenceToFrame;
-					if(useAffineLightningEstimation)
-					{
-						affineEstimation_a = affineEstimation_a_lastIt;
-						affineEstimation_b = affineEstimation_b_lastIt;
-					}
-
-
-					if(enablePrintDebugInfo && printTrackingIterationInfo)
-					{
-						// debug output
-						printf("(%d-%d): ACCEPTED increment of %f with lambda %.1f, residual: %f -> %f\n",
-								lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
-
-						printf("         p=%.4f %.4f %.4f %.4f %.4f %.4f\n",
-								referenceToFrame.log()[0],referenceToFrame.log()[1],referenceToFrame.log()[2],
-								referenceToFrame.log()[3],referenceToFrame.log()[4],referenceToFrame.log()[5]);
-					}
-
-					// converged?
-					if(error / lastErr > settings.convergenceEps[lvl])
-					{
-						if(enablePrintDebugInfo && printTrackingIterationInfo)
-						{
-							printf("(%d-%d): FINISHED pyramid level (last residual reduction too small).\n",
-									lvl,iteration);
-						}
-						iteration = settings.maxItsPerLvl[lvl];
-					}
-
-					last_residual = lastErr = error;
-
-
-					if(LM_lambda <= 0.2)
-						LM_lambda = 0;
-					else
-						LM_lambda *= settings.lambdaSuccessFac;
-
-					break;
-				}
-				else
-				{
-					if(enablePrintDebugInfo && printTrackingIterationInfo)
-					{
-						printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
-								lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
-					}
-
-					if(!(inc.dot(inc) > settings.stepSizeMin[lvl]))
-					{
-						if(enablePrintDebugInfo && printTrackingIterationInfo)
-						{
-							printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
-									lvl,iteration);
-						}
-						iteration = settings.maxItsPerLvl[lvl];
-						break;
-					}
-
-					if(LM_lambda == 0)
-						LM_lambda = 0.2;
-					else
-						LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
-				}
-			}
-		}
-	}
-
 	//============check idepth===============
+	reference->makePointCloud(0);
 	float sum_temp = 0;
-	Eigen::Vector2f* VarDataPT = reference->colorAndVarData[1];
-	// if(frame->id()<50)
-	// {
-	// 	for (int id = 0; id < reference->numData[1];id++)
-	// 	{
-	// 		sum_temp += (*VarDataPT)[1];
-	// 	}
-	// 	cout << "numData: " << reference->numData[1] << endl;
-	// 	cout << "逆深度方差：" << sum_temp / reference->numData[1] << endl;
-	// }
+	Eigen::Vector2f* VarDataPT = reference->colorAndVarData[0];
 	
-	for (int id = 0; id < reference->numData[1];id++)
+	for (int id = 0; id < reference->numData[0];id++)
 	{
 		sum_temp += (*VarDataPT)[1];
 	}
 	
-	if(sum_temp/reference->numData[1]<0.01)
+	if(sum_temp/reference->numData[0]<0.02)
 	{
-		cout << "联合优化起始帧 : " << frame->id() << endl;
-		//================联合优化================
-		// ============ 计算重投影误差 ===========
-		ProjectionResiduals(reference, frame, referenceToFrame);
-		//std::cout<<"keypoints' matches: "<<reference->keyframe->nmatches<<endl;
-		reference->makePointCloud(0);
-		callOptimized(calcResidualAndBuffers, (reference->posData[0], reference->colorAndVarData[0], 0, reference->numData[0], frame, referenceToFrame, 0, plotTracking));
-		//cout << "buf_warped_size: " << buf_warped_size << endl;
-		float lastUnionErr = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (referenceToFrame)); //初始化联合优化误差
-		//cout << "error: " << error << endl;
-		//cout << "lastUnionErr: " << lastUnionErr << endl;
-		//cout << "重投影误差：" << calcProjectWeights() << endl;
-		//cout << "灰度误差：" << calcWeightsAndResidual(referenceToFrame) << endl;
-
-		float LM_lambda = settings.lambdaInitial[0];
-
-		for (int iteration = 0; iteration < settings.maxItsPerLvl[0]; iteration++) //迭代10次
+		//==============联合逐层优化==============
+		for(int lvl=SE3TRACKING_MAX_LEVEL-1;lvl >= SE3TRACKING_MIN_LEVEL;lvl--)//从第五层优化到第二层
 		{
+			numCalcResidualCalls[lvl] = 0;
+			numCalcWarpUpdateCalls[lvl] = 0;
 
-			calculateUnionWarpUpdate(ls); ////计算雅可比以及最小二乘系数
+			ProjectionResiduals(reference, frame, referenceToFrame, lvl);
+			reference->makePointCloud(lvl);
 
-			int incTry = 0;
-			while (true)
+			//计算残差
+			callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
+			if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * (width>>lvl)*(height>>lvl))
 			{
-				// solve LS system with current lambda, 求解LM
-				Vector6 b = -ls.b - ls.pro_b;
-				Matrix6x6 A = ls.A + ls.pro_A;
-				for (int i = 0; i < 6; i++)
-					A(i, i) *= 1 + LM_lambda;
-				Vector6 inc = A.ldlt().solve(b);
-				incTry++;
+				diverged = true;
+				trackingWasGood = false;
+				return SE3();
+			}
 
-				// apply increment. pretty sure this way round is correct, but hard to test.
-				Sophus::SE3f new_referenceToFrame = Sophus::SE3f::exp((inc)) * referenceToFrame;
-				//Sophus::SE3f new_referenceToFrame = referenceToFrame * Sophus::SE3f::exp((inc));
+			if(useAffineLightningEstimation)//光照仿射变换
+			{
+				affineEstimation_a = affineEstimation_a_lastIt;
+				affineEstimation_b = affineEstimation_b_lastIt;
+			}
+			float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame)) + calcProjectWeights();//联合误差
 
-				// re-evaluate residual
-				ProjectionResiduals(reference, frame, referenceToFrame);
-				callOptimized(calcResidualAndBuffers, (reference->posData[0], reference->colorAndVarData[0], 0, reference->numData[0], frame, referenceToFrame, 0, plotTracking));
-				if (buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * width * height)
+			numCalcResidualCalls[lvl]++;
+
+
+			float LM_lambda = settings.lambdaInitial[lvl];
+
+			for(int iteration=0; iteration < settings.maxItsPerLvl[lvl]; iteration++)
+			{
+
+				//callOptimized(calculateWarpUpdate,(ls));////计算雅可比以及最小二乘系数
+				calculateUnionWarpUpdate(ls); ////计算雅可比以及最小二乘系数
+
+				numCalcWarpUpdateCalls[lvl]++;
+
+				iterationNumber = iteration;
+
+				int incTry=0;
+				while(true)
 				{
-					cout << "没有足够的灰度像素投影到当前帧！！！！！！！！！！" << endl;
-					diverged = true;
-					trackingWasGood = false;
-					return SE3();
-				}
+					// solve LS system with current lambda
+					Vector6 b = -ls.b - ls.pro_b;
+					Matrix6x6 A = ls.A + ls.pro_A;
+					for (int i = 0; i < 6; i++)
+						A(i, i) *= 1 + LM_lambda;
+					Vector6 inc = A.ldlt().solve(b);
+					incTry++;
 
-				float error = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (new_referenceToFrame));
+					// apply increment. pretty sure this way round is correct, but hard to test.
+					Sophus::SE3f new_referenceToFrame = Sophus::SE3f::exp((inc)) * referenceToFrame;
+					//Sophus::SE3f new_referenceToFrame = referenceToFrame * Sophus::SE3f::exp((inc));
 
-				//cout << "重投影误差：" << calcProjectWeights() << endl;
-				//cout << "灰度误差：" << calcWeightsAndResidual(new_referenceToFrame) << endl;
 
-				// accept inc?
-				if (error < lastUnionErr)
-				{
-					// accept inc
-					referenceToFrame = new_referenceToFrame;
-					if (useAffineLightningEstimation)
+					// re-evaluate residual
+					ProjectionResiduals(reference, frame, new_referenceToFrame, lvl);
+					callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, new_referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
+					if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN* (width>>lvl)*(height>>lvl))
 					{
-						affineEstimation_a = affineEstimation_a_lastIt;
-						affineEstimation_b = affineEstimation_b_lastIt;
+						diverged = true;
+						trackingWasGood = false;
+						return SE3();
 					}
 
-					if (false) //(enablePrintDebugInfo && printTrackingIterationInfo)
-					{
-						// debug output
-						printf("(%d-%d): ACCEPTED increment of %f with lambda %.1f, residual: %f -> %f\n",
-							   0, iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
+					float error = callOptimized(calcWeightsAndResidual,(new_referenceToFrame)) + calcProjectWeights();
+					numCalcResidualCalls[lvl]++;
 
-						printf("         p=%.4f %.4f %.4f %.4f %.4f %.4f\n",
-							   referenceToFrame.log()[0], referenceToFrame.log()[1], referenceToFrame.log()[2],
-							   referenceToFrame.log()[3], referenceToFrame.log()[4], referenceToFrame.log()[5]);
-					}
 
-					// converged?
-					if (error / lastUnionErr > settings.convergenceEps[0])//变化小于0.001即判定收敛
+					// accept inc?
+					if(error < lastErr)
 					{
-						if (false) // (enablePrintDebugInfo && printTrackingIterationInfo)
+						// accept inc
+						referenceToFrame = new_referenceToFrame;
+						if(useAffineLightningEstimation)
 						{
-							printf("(%d-%d): FINISHED pyramid level (last residual reduction too small).\n",
-								   0, iteration);
+							affineEstimation_a = affineEstimation_a_lastIt;
+							affineEstimation_b = affineEstimation_b_lastIt;
 						}
-						iteration = settings.maxItsPerLvl[0];
-					}
 
-					// last_residual = lastUnionErr = error;
-					lastUnionErr = error;
 
-					if (LM_lambda <= 0.2)
-						LM_lambda = 0;
-					else
-						LM_lambda *= settings.lambdaSuccessFac;
-
-					break;
-				}
-				else
-				{
-					if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
-					{
-						printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
-							   0, iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
-					}
-
-					if (!(inc.dot(inc) > settings.stepSizeMin[0]))
-					{
-						if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
+						if(enablePrintDebugInfo && printTrackingIterationInfo)
 						{
-							printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
-								   0, iteration);
+							// debug output
+							printf("(%d-%d): ACCEPTED increment of %f with lambda %.1f, residual: %f -> %f\n",
+									lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
+
+							printf("         p=%.4f %.4f %.4f %.4f %.4f %.4f\n",
+									referenceToFrame.log()[0],referenceToFrame.log()[1],referenceToFrame.log()[2],
+									referenceToFrame.log()[3],referenceToFrame.log()[4],referenceToFrame.log()[5]);
 						}
-						iteration = settings.maxItsPerLvl[0];
+
+						// converged?
+						if(error / lastErr > settings.convergenceEps[lvl])
+						{
+							if(enablePrintDebugInfo && printTrackingIterationInfo)
+							{
+								printf("(%d-%d): FINISHED pyramid level (last residual reduction too small).\n",
+										lvl,iteration);
+							}
+							iteration = settings.maxItsPerLvl[lvl];
+						}
+
+						last_residual = lastErr = error;
+
+
+						if(LM_lambda <= 0.2)
+							LM_lambda = 0;
+						else
+							LM_lambda *= settings.lambdaSuccessFac;
+
 						break;
 					}
-
-					if (LM_lambda == 0)
-						LM_lambda = 0.2;
 					else
-						LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
+					{
+						if(true)
+						{
+							printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
+									lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
+						}
+
+						if(!(inc.dot(inc) > settings.stepSizeMin[lvl]))
+						{
+							if(true)
+							{
+								printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
+										lvl,iteration);
+							}
+							iteration = settings.maxItsPerLvl[lvl];
+							break;
+						}
+
+						if(LM_lambda == 0)
+							LM_lambda = 0.2;
+						else
+							LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
+					}
 				}
 			}
 		}
-
 	}
+	else
+	{
+		//==============直接法逐层优化=============
+		for(int lvl=SE3TRACKING_MAX_LEVEL-1;lvl >= SE3TRACKING_MIN_LEVEL;lvl--)//从第五层优化到第二层
+		{
+			numCalcResidualCalls[lvl] = 0;
+			numCalcWarpUpdateCalls[lvl] = 0;
 
+			reference->makePointCloud(lvl);
+
+			//计算残差
+			callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
+			if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * (width>>lvl)*(height>>lvl))
+			{
+				diverged = true;
+				trackingWasGood = false;
+				return SE3();
+			}
+
+			if(useAffineLightningEstimation)//光照仿射变换
+			{
+				affineEstimation_a = affineEstimation_a_lastIt;
+				affineEstimation_b = affineEstimation_b_lastIt;
+			}
+			float lastErr = callOptimized(calcWeightsAndResidual,(referenceToFrame));////计算归一化方差的光度误差系数，返回值是归一化光度误差均值
+
+			numCalcResidualCalls[lvl]++;
+
+
+			float LM_lambda = settings.lambdaInitial[lvl];
+
+			for(int iteration=0; iteration < settings.maxItsPerLvl[lvl]; iteration++)
+			{
+
+				callOptimized(calculateWarpUpdate,(ls));////计算雅可比以及最小二乘系数
+
+				numCalcWarpUpdateCalls[lvl]++;
+
+				iterationNumber = iteration;
+
+				int incTry=0;
+				while(true)
+				{
+					// solve LS system with current lambda
+					Vector6 b = -ls.b;
+					Matrix6x6 A = ls.A;
+					for(int i=0;i<6;i++) A(i,i) *= 1+LM_lambda;
+					Vector6 inc = A.ldlt().solve(b);
+					incTry++;
+
+					// apply increment. pretty sure this way round is correct, but hard to test.
+					Sophus::SE3f new_referenceToFrame = Sophus::SE3f::exp((inc)) * referenceToFrame;
+					//Sophus::SE3f new_referenceToFrame = referenceToFrame * Sophus::SE3f::exp((inc));
+
+
+					// re-evaluate residual
+					callOptimized(calcResidualAndBuffers, (reference->posData[lvl], reference->colorAndVarData[lvl], SE3TRACKING_MIN_LEVEL == lvl ? reference->pointPosInXYGrid[lvl] : 0, reference->numData[lvl], frame, new_referenceToFrame, lvl, (plotTracking && lvl == SE3TRACKING_MIN_LEVEL)));
+					if(buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN* (width>>lvl)*(height>>lvl))
+					{
+						diverged = true;
+						trackingWasGood = false;
+						return SE3();
+					}
+
+					float error = callOptimized(calcWeightsAndResidual,(new_referenceToFrame));
+					numCalcResidualCalls[lvl]++;
+
+
+					// accept inc?
+					if(error < lastErr)
+					{
+						// accept inc
+						referenceToFrame = new_referenceToFrame;
+						if(useAffineLightningEstimation)
+						{
+							affineEstimation_a = affineEstimation_a_lastIt;
+							affineEstimation_b = affineEstimation_b_lastIt;
+						}
+
+
+						if(enablePrintDebugInfo && printTrackingIterationInfo)
+						{
+							// debug output
+							printf("(%d-%d): ACCEPTED increment of %f with lambda %.1f, residual: %f -> %f\n",
+									lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
+
+							printf("         p=%.4f %.4f %.4f %.4f %.4f %.4f\n",
+									referenceToFrame.log()[0],referenceToFrame.log()[1],referenceToFrame.log()[2],
+									referenceToFrame.log()[3],referenceToFrame.log()[4],referenceToFrame.log()[5]);
+						}
+
+						// converged?
+						if(error / lastErr > settings.convergenceEps[lvl])
+						{
+							if(enablePrintDebugInfo && printTrackingIterationInfo)
+							{
+								printf("(%d-%d): FINISHED pyramid level (last residual reduction too small).\n",
+										lvl,iteration);
+							}
+							iteration = settings.maxItsPerLvl[lvl];
+						}
+
+						last_residual = lastErr = error;
+
+
+						if(LM_lambda <= 0.2)
+							LM_lambda = 0;
+						else
+							LM_lambda *= settings.lambdaSuccessFac;
+
+						break;
+					}
+					else
+					{
+						if(enablePrintDebugInfo && printTrackingIterationInfo)
+						{
+							printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
+									lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
+						}
+
+						if(!(inc.dot(inc) > settings.stepSizeMin[lvl]))
+						{
+							if(enablePrintDebugInfo && printTrackingIterationInfo)
+							{
+								printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
+										lvl,iteration);
+							}
+							iteration = settings.maxItsPerLvl[lvl];
+							break;
+						}
+
+						if(LM_lambda == 0)
+							LM_lambda = 0.2;
+						else
+							LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
+					}
+				}
+			}
+		}
+	}
+	
+
+	
+
+///
+	
+
+	// //============check idepth===============
+	// float sum_temp = 0;
+	// Eigen::Vector2f* VarDataPT = reference->colorAndVarData[1];
+	// // if(frame->id()<50)
+	// // {
+	// // 	for (int id = 0; id < reference->numData[1];id++)
+	// // 	{
+	// // 		sum_temp += (*VarDataPT)[1];
+	// // 	}
+	// // 	cout << "numData: " << reference->numData[1] << endl;
+	// // 	cout << "逆深度方差：" << sum_temp / reference->numData[1] << endl;
+	// // }
+	
+	// for (int id = 0; id < reference->numData[1];id++)
+	// {
+	// 	sum_temp += (*VarDataPT)[1];
+	// }
+	
+	// if(sum_temp/reference->numData[1]<0.01)
+	// {
+	// 	//cout << "联合优化起始帧 : " << frame->id() << endl;
+	// 	//================联合优化================
+	// 	// ============ 计算重投影误差 ===========
+	// 	ProjectionResiduals(reference, frame, referenceToFrame);
+	// 	//std::cout<<"keypoints' matches: "<<reference->keyframe->nmatches<<endl;
+	// 	reference->makePointCloud(0);
+	// 	callOptimized(calcResidualAndBuffers, (reference->posData[0], reference->colorAndVarData[0], 0, reference->numData[0], frame, referenceToFrame, 0, plotTracking));
+	// 	//cout << "buf_warped_size: " << buf_warped_size << endl;
+	// 	float lastUnionErr = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (referenceToFrame)); //初始化联合优化误差
+	// 	//cout << "error: " << error << endl;
+	// 	//cout << "lastUnionErr: " << lastUnionErr << endl;
+	// 	//cout << "重投影误差：" << calcProjectWeights() << endl;
+	// 	//cout << "灰度误差：" << calcWeightsAndResidual(referenceToFrame) << endl;
+
+	// 	float LM_lambda = settings.lambdaInitial[0];
+
+	// 	for (int iteration = 0; iteration < settings.maxItsPerLvl[0]; iteration++) //迭代10次
+	// 	{
+
+	// 		calculateUnionWarpUpdate(ls); ////计算雅可比以及最小二乘系数
+
+	// 		int incTry = 0;
+	// 		while (true)
+	// 		{
+	// 			// solve LS system with current lambda, 求解LM
+	// 			Vector6 b = -ls.b - ls.pro_b;
+	// 			Matrix6x6 A = ls.A + ls.pro_A;
+	// 			for (int i = 0; i < 6; i++)
+	// 				A(i, i) *= 1 + LM_lambda;
+	// 			Vector6 inc = A.ldlt().solve(b);
+	// 			incTry++;
+
+	// 			// apply increment. pretty sure this way round is correct, but hard to test.
+	// 			Sophus::SE3f new_referenceToFrame = Sophus::SE3f::exp((inc)) * referenceToFrame;
+	// 			//Sophus::SE3f new_referenceToFrame = referenceToFrame * Sophus::SE3f::exp((inc));
+
+	// 			// re-evaluate residual
+	// 			ProjectionResiduals(reference, frame, referenceToFrame);
+	// 			callOptimized(calcResidualAndBuffers, (reference->posData[0], reference->colorAndVarData[0], 0, reference->numData[0], frame, referenceToFrame, 0, plotTracking));
+	// 			if (buf_warped_size < MIN_GOODPERALL_PIXEL_ABSMIN * width * height)
+	// 			{
+	// 				cout << "没有足够的灰度像素投影到当前帧！！！！！！！！！！" << endl;
+	// 				diverged = true;
+	// 				trackingWasGood = false;
+	// 				return SE3();
+	// 			}
+
+	// 			float error = calcProjectWeights() + callOptimized(calcWeightsAndResidual, (new_referenceToFrame));
+
+	// 			//cout << "重投影误差：" << calcProjectWeights() << endl;
+	// 			//cout << "灰度误差：" << calcWeightsAndResidual(new_referenceToFrame) << endl;
+
+	// 			// accept inc?
+	// 			if (error < lastUnionErr)
+	// 			{
+	// 				// accept inc
+	// 				referenceToFrame = new_referenceToFrame;
+	// 				if (useAffineLightningEstimation)
+	// 				{
+	// 					affineEstimation_a = affineEstimation_a_lastIt;
+	// 					affineEstimation_b = affineEstimation_b_lastIt;
+	// 				}
+
+	// 				if (false) //(enablePrintDebugInfo && printTrackingIterationInfo)
+	// 				{
+	// 					// debug output
+	// 					printf("(%d-%d): ACCEPTED increment of %f with lambda %.1f, residual: %f -> %f\n",
+	// 						   0, iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
+
+	// 					printf("         p=%.4f %.4f %.4f %.4f %.4f %.4f\n",
+	// 						   referenceToFrame.log()[0], referenceToFrame.log()[1], referenceToFrame.log()[2],
+	// 						   referenceToFrame.log()[3], referenceToFrame.log()[4], referenceToFrame.log()[5]);
+	// 				}
+
+	// 				// converged?
+	// 				if (error / lastUnionErr > settings.convergenceEps[0])//变化小于0.001即判定收敛
+	// 				{
+	// 					if (false) // (enablePrintDebugInfo && printTrackingIterationInfo)
+	// 					{
+	// 						printf("(%d-%d): FINISHED pyramid level (last residual reduction too small).\n",
+	// 							   0, iteration);
+	// 					}
+	// 					iteration = settings.maxItsPerLvl[0];
+	// 				}
+
+	// 				// last_residual = lastUnionErr = error;
+	// 				lastUnionErr = error;
+
+	// 				if (LM_lambda <= 0.2)
+	// 					LM_lambda = 0;
+	// 				else
+	// 					LM_lambda *= settings.lambdaSuccessFac;
+
+	// 				break;
+	// 			}
+	// 			else
+	// 			{
+	// 				if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
+	// 				{
+	// 					printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
+	// 						   0, iteration, sqrt(inc.dot(inc)), LM_lambda, lastUnionErr, error);
+	// 				}
+
+	// 				if (!(inc.dot(inc) > settings.stepSizeMin[0]))
+	// 				{
+	// 					if (true) //(enablePrintDebugInfo && printTrackingIterationInfo)
+	// 					{
+	// 						printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
+	// 							   0, iteration);
+	// 					}
+	// 					iteration = settings.maxItsPerLvl[0];
+	// 					break;
+	// 				}
+
+	// 				if (LM_lambda == 0)
+	// 					LM_lambda = 0.2;
+	// 				else
+	// 					LM_lambda *= std::pow(settings.lambdaFailFac, incTry);
+	// 			}
+	// 		}
+	// 	}
+
+	// }
+///
 	if(plotTracking)
 		Util::displayImage("TrackingResidual", debugImageResiduals, false);
 
@@ -976,7 +1146,10 @@ float SE3Tracker::calcProjectWeights()//计算重投影误差归一化参数
 {
 	float sumRes = 0;
 
-	for(int i=0;i<project_buf_warped_size;i++)
+	// float K = 261 / (1 + exp((float)(300 - nmatches) / 40));
+	// cout << "K: " << K << endl;
+	//float K = 6;
+	for (int i = 0; i < project_buf_warped_size; i++)
 	{
 		float rp_x = *(project_buf_warped_residual_x+i); // r_p
 		float rp_y = *(project_buf_warped_residual_y+i); // r_p
@@ -996,7 +1169,7 @@ float SE3Tracker::calcProjectWeights()//计算重投影误差归一化参数
 		sumRes += wh * w_p * rp*rp;
 
 
-		*(project_buf_weight_p+i) = wh * w_p;
+		*(project_buf_weight_p+i) = wh * w_p;// * K;
 	}
 
 	return sumRes / project_buf_warped_size;
@@ -1628,14 +1801,16 @@ Vector6 SE3Tracker::calculateUnionWarpUpdate(
 float SE3Tracker::ProjectionResiduals(
 		TrackingReference* reference,
 		Frame* frame,
-		const Sophus::SE3f& referenceToFrame)
+		const Sophus::SE3f& referenceToFrame,
+		int level)
 {
 
 	bool mbCheckOrientation = false;
 
 	// 长宽和相机内参
-	int w = frame->width(0);
-	int h = frame->height(0);
+	int w = frame->width(level);
+	int h = frame->height(level);
+	int w0 = frame->width(0);
 	Eigen::Matrix3f KLvl = frame->K(0);
 	float fx = KLvl(0,0);
 	float fy = KLvl(1,1);
@@ -1656,13 +1831,13 @@ float SE3Tracker::ProjectionResiduals(
 	const float* pyrColorSource = reference->keyframe->image(0);
 	const Eigen::Vector4f* pyrGradSource = reference->keyframe->gradients(0);
 
-	if(reference->projectposData == nullptr) reference->projectposData = new Eigen::Vector3f[w*h];
-	if(reference->projectgradData == nullptr) reference->projectgradData = new Eigen::Vector2f[w*h];
-	if(reference->projectcolorAndVarData == nullptr) reference->projectcolorAndVarData = new Eigen::Vector2f[w*h];
+	if(reference->projectposData[level] == nullptr) reference->projectposData[level] = new Eigen::Vector3f[w*h];
+	if(reference->projectgradData[level] == nullptr) reference->projectgradData[level] = new Eigen::Vector2f[w*h];
+	if(reference->projectcolorAndVarData[level] == nullptr) reference->projectcolorAndVarData[level] = new Eigen::Vector2f[w*h];
 
-	Eigen::Vector3f* posDataPT = reference->projectposData;
-	Eigen::Vector2f* gradDataPT = reference->projectgradData;
-	Eigen::Vector2f* colorAndVarDataPT = reference->projectcolorAndVarData;
+	Eigen::Vector3f* posDataPT = reference->projectposData[level];
+	Eigen::Vector2f* gradDataPT = reference->projectgradData[level];
+	Eigen::Vector2f* colorAndVarDataPT = reference->projectcolorAndVarData[level];
 
 	const Eigen::Vector4f* frame_gradients = frame->gradients(0);
 
@@ -1676,11 +1851,16 @@ float SE3Tracker::ProjectionResiduals(
 	vector<int> vMatchedDistance(frame->fKeypoints.size(), 256);
 	vector<int> vnMatches21(frame->fKeypoints.size(),-1);
 	vector<int> vnMatches12(reference->keyframe->fKeypoints.size(),-1);
-	for(auto keypoint : reference->keyframe->fKeypoints)
+	//cout << "特征点数：" << reference->keyframe->fKeypoints.size() << endl;
+	for (auto keypoint : reference->keyframe->fKeypoints)
 	{
-		int x = round(keypoint.pt.x);
+		if (keypoint.octave != level) //只匹配在这一层上的特征点
+			continue;
+
+
+		int x = round(keypoint.pt.x);//每一层的特征点都映射到第零层
 		int y = round(keypoint.pt.y);
-		int idx = x + y*w;
+		int idx = x + y*w0;
 
 		// 为了保障数量足够的特征点能被投影到当前帧,!!!!!!!!!!这里可能不能使用LSD的点云，要通过orb自己建图
 		// if(pyrIdepthVarSource[idx] <= 0 || pyrIdepthSource[idx] == 0)
@@ -1738,7 +1918,7 @@ float SE3Tracker::ProjectionResiduals(
 		//====================== 选出当前帧的候选关键点 ==========================
 		float radius = 15*reference->keyframe->mvScaleFactor[nLastOctave];
 		vector<size_t> vIndices;//待匹配候选特征点
-		vIndices = frame->GetFeaturesInArea(u_new,v_new, radius, nLastOctave-1, nLastOctave+1);
+		vIndices = frame->GetFeaturesInArea(u_new,v_new, radius, nLastOctave-1, nLastOctave+1);//只搜索同一层的特征点
 
 		if(vIndices.empty()) 
 		{
@@ -1780,16 +1960,16 @@ float SE3Tracker::ProjectionResiduals(
             }
 		}
 
-		if(bestDist<=100)
+		if(bestDist<=100)//100
 		{
-			if(bestDist<(float)bestDist2*0.7)//最好的匹配距离应该比次好的匹配距离的70%更小
+			if(bestDist<(float)bestDist2*0.9)//最好的匹配距离应该比次好的匹配距离的70%更小
 			{
 				if(vnMatches21[bestIdx]>=0)
                 {
                     vnMatches12[vnMatches21[bestIdx]]=-1;
-                    reference->keyframe->nmatches--;
-                }
-                vnMatches12[id_iterator]=bestIdx;
+                    //reference->keyframe->nmatches--;
+				}
+				vnMatches12[id_iterator]=bestIdx;
                 vnMatches21[bestIdx]=id_iterator;
                 vMatchedDistance[bestIdx]=bestDist;
                 reference->keyframe->nmatches++;
@@ -1834,8 +2014,8 @@ float SE3Tracker::ProjectionResiduals(
 	project_buf_warped_size = idxpt;
 
 	//cout<<"成功匹配的比率："<<(float)reference->keyframe->nmatches/(float)reference->keyframe->fKeypoints.size()<<endl;
+	cout <<"第"<<level<< "层成功匹配个数：" << reference->keyframe->nmatches << endl;
 
-	reference->keyframe->nmatches=0;
 	//Apply rotation consistency
 	if(mbCheckOrientation)
 	{
@@ -1856,7 +2036,9 @@ float SE3Tracker::ProjectionResiduals(
 			}
 		}
 	}
+	nmatches[level] = reference->keyframe->nmatches;
 
+	reference->keyframe->nmatches=0;
 
 	return 0;
 }

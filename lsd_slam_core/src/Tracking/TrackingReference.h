@@ -69,10 +69,11 @@ public:
 	int numData[PYRAMID_LEVELS];
 
 	//used in reprojection
-	Eigen::Vector3f* projectposData;	// (x,y,z)
-	Eigen::Vector2f* projectgradData;	// (dx, dy)
-	Eigen::Vector2f* projectcolorAndVarData;	// (I, Var)
-	int projectnumData;
+	Eigen::Vector3f* projectposData[PYRAMID_LEVELS];	// (x,y,z)
+	Eigen::Vector2f* projectgradData[PYRAMID_LEVELS];	// (dx, dy)
+	Eigen::Vector2f* projectcolorAndVarData[PYRAMID_LEVELS];	// (I, Var)
+	int projectnumData[PYRAMID_LEVELS];
+
 
 private:
 	int wh_allocated;
