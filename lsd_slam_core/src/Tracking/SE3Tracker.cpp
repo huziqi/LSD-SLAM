@@ -402,10 +402,15 @@ SE3 SE3Tracker::trackFrame(
 
 			for(int iteration=0; iteration < settings.maxItsPerLvl[lvl]; iteration++)
 			{
-
-				//callOptimized(calculateWarpUpdate,(ls));////计算雅可比以及最小二乘系数
-				calculateUnionWarpUpdate(ls); ////计算雅可比以及最小二乘系数
-
+				if(project_buf_warped_size==0)
+				{
+					callOptimized(calculateWarpUpdate,(ls));////计算雅可比以及最小二乘系数
+				}
+				else
+				{
+					calculateUnionWarpUpdate(ls); ////计算雅可比以及最小二乘系数
+				}
+				
 				numCalcWarpUpdateCalls[lvl]++;
 
 				iterationNumber = iteration;
@@ -1171,8 +1176,14 @@ float SE3Tracker::calcProjectWeights()//计算重投影误差归一化参数
 
 		*(project_buf_weight_p+i) = wh * w_p;// * K;
 	}
-
-	return sumRes / project_buf_warped_size;
+	if(project_buf_warped_size!=0)
+	{
+		return sumRes / project_buf_warped_size;
+	}
+	else
+	{
+		return 0;
+	}
 }
 
 
@@ -1848,6 +1859,11 @@ float SE3Tracker::ProjectionResiduals(
 	//==================== 逐参考帧的关键点匹配 ==========================
 	int id_iterator = 0;
 	int idxpt = 0;
+	int num1 = 0;
+	int num2 = 0;
+	int num3 = 0;
+	int num4 = 0;
+	int num5 = 0;
 	vector<int> vMatchedDistance(frame->fKeypoints.size(), 256);
 	vector<int> vnMatches21(frame->fKeypoints.size(),-1);
 	vector<int> vnMatches12(reference->keyframe->fKeypoints.size(),-1);
@@ -1964,6 +1980,27 @@ float SE3Tracker::ProjectionResiduals(
 		{
 			if(bestDist<(float)bestDist2*0.9)//最好的匹配距离应该比次好的匹配距离的70%更小
 			{
+				switch (keypoint.octave)
+				{
+				case 0:
+					num1++;
+					break;
+				case 1:
+					num2++;
+					break;
+				case 2:
+					num3++;
+					break;
+				case 3:
+					num4++;
+					break;
+				case 4:
+					num5++;
+					break;
+				default:
+					break;
+				}
+
 				if(vnMatches21[bestIdx]>=0)
                 {
                     vnMatches12[vnMatches21[bestIdx]]=-1;
@@ -1985,24 +2022,25 @@ float SE3Tracker::ProjectionResiduals(
 					assert(bin>=0 && bin<HISTO_LENGTH);
 					rotHist[bin].push_back(bestIdx);
 				}
-			}
+			
 		
-			// 重投影误差
-			*(project_buf_warped_residual_x+idxpt) = u_new - frame->fKeypoints[bestIdx].pt.x;
-			*(project_buf_warped_residual_y+idxpt) = v_new - frame->fKeypoints[bestIdx].pt.y;
+				// 重投影误差
+				*(project_buf_warped_residual_x+idxpt) = u_new - frame->fKeypoints[bestIdx].pt.x;
+				*(project_buf_warped_residual_y+idxpt) = v_new - frame->fKeypoints[bestIdx].pt.y;
 
-			*(project_buf_warped_x+idxpt) = Wxp(0);
-			*(project_buf_warped_y+idxpt) = Wxp(1);
-			*(project_buf_warped_z+idxpt) = Wxp(2);
+				*(project_buf_warped_x+idxpt) = Wxp(0);
+				*(project_buf_warped_y+idxpt) = Wxp(1);
+				*(project_buf_warped_z+idxpt) = Wxp(2);
 
-			*(buf_warped_dx+idxpt) = fx * resInterp[0];
-			*(buf_warped_dy+idxpt) = fy * resInterp[1];
+				*(buf_warped_dx+idxpt) = fx * resInterp[0];
+				*(buf_warped_dy+idxpt) = fy * resInterp[1];
 
-			*(project_buf_d+idxpt) = 1.0f / (*posDataPT)[2];
-			*(project_buf_idepthVar+idxpt) = (*colorAndVarDataPT)[1];
-			idxpt++;
+				*(project_buf_d+idxpt) = 1.0f / (*posDataPT)[2];
+				*(project_buf_idepthVar+idxpt) = (*colorAndVarDataPT)[1];
+				idxpt++;
 
-			if(*(project_buf_idepthVar+idxpt)<minidepthVar) minidepthVar = *(project_buf_idepthVar+idxpt);//找到最小逆深度方差
+				if(*(project_buf_idepthVar+idxpt)<minidepthVar) minidepthVar = *(project_buf_idepthVar+idxpt);//找到最小逆深度方差
+			}
 		}
 
 		posDataPT++;
@@ -2014,7 +2052,8 @@ float SE3Tracker::ProjectionResiduals(
 	project_buf_warped_size = idxpt;
 
 	//cout<<"成功匹配的比率："<<(float)reference->keyframe->nmatches/(float)reference->keyframe->fKeypoints.size()<<endl;
-	cout <<"第"<<level<< "层成功匹配个数：" << reference->keyframe->nmatches << endl;
+	//cout <<"第"<<level<< "层成功匹配个数：" << reference->keyframe->nmatches << endl;
+	//cout << "num1：" << num1 << ", num2:" << num2 << ", num3:" << num3 << ", num4:" << num4 << ", num5:" << num5 << endl;
 
 	//Apply rotation consistency
 	if(mbCheckOrientation)
