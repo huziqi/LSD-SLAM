@@ -1805,24 +1805,25 @@ float SE3Tracker::ProjectionResiduals(
 					assert(bin>=0 && bin<HISTO_LENGTH);
 					rotHist[bin].push_back(bestIdx);
 				}
+				// 重投影误差
+				*(project_buf_warped_residual_x+idxpt) = u_new - frame->fKeypoints[bestIdx].pt.x;
+				*(project_buf_warped_residual_y+idxpt) = v_new - frame->fKeypoints[bestIdx].pt.y;
+
+				*(project_buf_warped_x+idxpt) = Wxp(0);
+				*(project_buf_warped_y+idxpt) = Wxp(1);
+				*(project_buf_warped_z+idxpt) = Wxp(2);
+
+				*(buf_warped_dx+idxpt) = fx * resInterp[0];
+				*(buf_warped_dy+idxpt) = fy * resInterp[1];
+
+				*(project_buf_d+idxpt) = 1.0f / (*posDataPT)[2];
+				*(project_buf_idepthVar+idxpt) = (*colorAndVarDataPT)[1];
+				idxpt++;
+
+				if(*(project_buf_idepthVar+idxpt)<minidepthVar) minidepthVar = *(project_buf_idepthVar+idxpt);//找到最小逆深度方差
 			}
 		
-			// 重投影误差
-			*(project_buf_warped_residual_x+idxpt) = u_new - frame->fKeypoints[bestIdx].pt.x;
-			*(project_buf_warped_residual_y+idxpt) = v_new - frame->fKeypoints[bestIdx].pt.y;
-
-			*(project_buf_warped_x+idxpt) = Wxp(0);
-			*(project_buf_warped_y+idxpt) = Wxp(1);
-			*(project_buf_warped_z+idxpt) = Wxp(2);
-
-			*(buf_warped_dx+idxpt) = fx * resInterp[0];
-			*(buf_warped_dy+idxpt) = fy * resInterp[1];
-
-			*(project_buf_d+idxpt) = 1.0f / (*posDataPT)[2];
-			*(project_buf_idepthVar+idxpt) = (*colorAndVarDataPT)[1];
-			idxpt++;
-
-			if(*(project_buf_idepthVar+idxpt)<minidepthVar) minidepthVar = *(project_buf_idepthVar+idxpt);//找到最小逆深度方差
+			
 		}
 
 		posDataPT++;
