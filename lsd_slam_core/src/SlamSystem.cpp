@@ -943,10 +943,24 @@ void SlamSystem::trackFrame(uchar* image, unsigned int frameID, bool blockUntilM
 	if(enablePrintDebugInfo && printThreadingInfo)
 		printf("TRACKING %d on %d\n", trackingNewFrame->id(), trackingReferencePose->frameID);
 
-
+	//=======匀速运动模型=============
 	poseConsistencyMutex.lock_shared();
-	SE3 frameToReference_initialEstimate = se3FromSim3(
+	SE3 frameToReference_initialEstimate;
+	if (keyFrameGraph->allFramePoses.size() >= 2)
+	{
+		int index = keyFrameGraph->allFramePoses.size();
+		frameToReference_initialEstimate = se3FromSim3(
+			trackingReferencePose->getCamToWorld().inverse() * keyFrameGraph->allFramePoses.back()->getCamToWorld() *
+																keyFrameGraph->allFramePoses[index-2]->getCamToWorld().inverse() *
+																keyFrameGraph->allFramePoses.back()->getCamToWorld());
+	}
+	else
+	{
+		frameToReference_initialEstimate = se3FromSim3(
 			trackingReferencePose->getCamToWorld().inverse() * keyFrameGraph->allFramePoses.back()->getCamToWorld());
+	}	
+	// SE3 frameToReference_initialEstimate = se3FromSim3(
+	// 		trackingReferencePose->getCamToWorld().inverse() * keyFrameGraph->allFramePoses.back()->getCamToWorld());
 	poseConsistencyMutex.unlock_shared();
 
 

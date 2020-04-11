@@ -491,7 +491,7 @@ SE3 SE3Tracker::trackFrame(
 					}
 					else
 					{
-						if(true)
+						if(false)
 						{
 							printf("(%d-%d): REJECTED increment of %f with lambda %.1f, (residual: %f -> %f)\n",
 									lvl,iteration, sqrt(inc.dot(inc)), LM_lambda, lastErr, error);
@@ -499,7 +499,7 @@ SE3 SE3Tracker::trackFrame(
 
 						if(!(inc.dot(inc) > settings.stepSizeMin[lvl]))
 						{
-							if(true)
+							if(false)
 							{
 								printf("(%d-%d): FINISHED pyramid level (stepsize too small).\n",
 										lvl,iteration);
@@ -1870,8 +1870,8 @@ float SE3Tracker::ProjectionResiduals(
 	//cout << "特征点数：" << reference->keyframe->fKeypoints.size() << endl;
 	for (auto keypoint : reference->keyframe->fKeypoints)
 	{
-		if (keypoint.octave != level) //只匹配在这一层上的特征点
-			continue;
+		// if (keypoint.octave != level) //只匹配在这一层上的特征点
+		// 	continue;
 
 
 		int x = round(keypoint.pt.x);//每一层的特征点都映射到第零层
@@ -2052,8 +2052,8 @@ float SE3Tracker::ProjectionResiduals(
 	project_buf_warped_size = idxpt;
 
 	//cout<<"成功匹配的比率："<<(float)reference->keyframe->nmatches/(float)reference->keyframe->fKeypoints.size()<<endl;
-	//cout <<"第"<<level<< "层成功匹配个数：" << reference->keyframe->nmatches << endl;
-	//cout << "num1：" << num1 << ", num2:" << num2 << ", num3:" << num3 << ", num4:" << num4 << ", num5:" << num5 << endl;
+	cout <<"第"<<level<< "层成功匹配个数：" << reference->keyframe->nmatches << endl;
+	cout << "num1：" << num1 << ", num2:" << num2 << ", num3:" << num3 << ", num4:" << num4 << ", num5:" << num5 << endl;
 
 	//Apply rotation consistency
 	if(mbCheckOrientation)
